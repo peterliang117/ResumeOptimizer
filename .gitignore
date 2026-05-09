@@ -1,0 +1,6 @@
+.DS_Store
+.Rhistory
+__pycache__/
+*.py[cod]
+.venv/
+outputs/
