@@ -4,3 +4,9 @@ __pycache__/
 *.py[cod]
 .venv/
 outputs/
+resumes/*.docx
+resumes/*.pdf
+!resumes/.gitkeep
+resume-optimizer/resumes/*.docx
+resume-optimizer/resumes/*.pdf
+!resume-optimizer/resumes/.gitkeep
