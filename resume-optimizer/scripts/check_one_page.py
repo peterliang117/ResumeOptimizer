@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -22,16 +24,23 @@ def find_soffice() -> str:
 
 def convert_to_pdf(docx: Path, outdir: Path) -> Path:
     outdir.mkdir(parents=True, exist_ok=True)
+    profile_dir = Path(tempfile.mkdtemp(prefix="lo-profile-", dir="/private/tmp"))
     command = [
         find_soffice(),
         "--headless",
+        "--norestore",
+        "--nofirststartwizard",
+        f"-env:UserInstallation=file://{profile_dir}",
         "--convert-to",
         "pdf",
         "--outdir",
         str(outdir),
         str(docx),
     ]
-    result = subprocess.run(command, check=False, capture_output=True, text=True)
+    env = os.environ.copy()
+    env["HOME"] = "/private/tmp"
+    env["TMPDIR"] = "/private/tmp"
+    result = subprocess.run(command, check=False, capture_output=True, text=True, env=env)
     if result.returncode != 0:
         raise SystemExit(result.stderr or result.stdout or "LibreOffice PDF conversion failed.")
     pdf = outdir / f"{docx.stem}.pdf"
