@@ -90,6 +90,24 @@ class ResumeParagraph:
     text: str
 
 
+def iter_document_paragraphs(document: Any) -> list[tuple[str, Any]]:
+    paragraphs: list[tuple[str, Any]] = []
+    for index, paragraph in enumerate(document.paragraphs):
+        paragraphs.append((f"body:p{index}", paragraph))
+
+    for table_index, table in enumerate(document.tables):
+        for row_index, row in enumerate(table.rows):
+            for cell_index, cell in enumerate(row.cells):
+                for paragraph_index, paragraph in enumerate(cell.paragraphs):
+                    paragraphs.append(
+                        (
+                            f"table:{table_index}:r{row_index}:c{cell_index}:p{paragraph_index}",
+                            paragraph,
+                        )
+                    )
+    return paragraphs
+
+
 def load_job_text(job: str | None = None, job_url: str | None = None) -> str:
     if job_url:
         return load_url_text(job_url)
@@ -155,10 +173,10 @@ def load_resume_paragraphs(path: Path) -> list[ResumeParagraph]:
 
     document = Document(path)
     paragraphs: list[ResumeParagraph] = []
-    for index, paragraph in enumerate(document.paragraphs):
+    for paragraph_id, paragraph in iter_document_paragraphs(document):
         text = paragraph.text.strip()
         if text:
-            paragraphs.append(ResumeParagraph(paragraph_id=f"p{index}", text=text))
+            paragraphs.append(ResumeParagraph(paragraph_id=paragraph_id, text=text))
     return paragraphs
 
 
@@ -313,8 +331,8 @@ def apply_edits(source_docx: Path, output_docx: Path, accepted_edits: list[dict[
 
     document = Document(source_docx)
     paragraph_text = {
-        f"p{index}": paragraph.text.strip()
-        for index, paragraph in enumerate(document.paragraphs)
+        paragraph_id: paragraph.text.strip()
+        for paragraph_id, paragraph in iter_document_paragraphs(document)
         if paragraph.text.strip()
     }
 
@@ -324,8 +342,7 @@ def apply_edits(source_docx: Path, output_docx: Path, accepted_edits: list[dict[
             raise SystemExit(error)
 
     edits_by_id = {edit["paragraph_id"]: edit for edit in accepted_edits}
-    for index, paragraph in enumerate(document.paragraphs):
-        paragraph_id = f"p{index}"
+    for paragraph_id, paragraph in iter_document_paragraphs(document):
         if paragraph_id in edits_by_id:
             replace_paragraph_text_keep_style(paragraph, edits_by_id[paragraph_id]["suggested"])
 
