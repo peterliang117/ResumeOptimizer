@@ -2,6 +2,8 @@
 
 Local Mac workflow for tailoring a one-page resume to a job description while preserving the original DOCX format and avoiding unsupported claims.
 
+![Resume Optimizer Workflow](docs/resume_optimizer_workflow.svg)
+
 ## Setup
 
 Install LibreOffice for PDF export:
