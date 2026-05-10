@@ -91,3 +91,37 @@ python scripts/check_one_page.py --docx outputs/tailored.docx
 4. Run `tailor.py` with `--accepted-edits`.
 5. Run `check_one_page.py`.
 6. If it exceeds one page, shorten low-priority bullets instead of shrinking text aggressively.
+
+## Application Packet Layout
+
+Use one folder per application under `applications/`:
+
+```text
+applications/company-role/
+  Zicong_Liang_<Company>_<Role>_Resume.docx
+  fit_analysis.json
+  job_description.txt
+  proposed_edits.json
+  render_check/
+    Zicong_Liang_<Company>_<Role>_Resume.pdf
+```
+
+Cover letters and recruiter messages are optional. Create them only when explicitly requested.
+
+Use the shared checklist instead of creating one checklist per job:
+
+```text
+applications/APPLICATION_REVIEW_CHECKLIST.md
+```
+
+Keep `outputs/` for temporary scratch files, such as `suggestions.json`, not final application packets.
+
+## Tailored Resume Collection
+
+Final tailored resumes are also copied into:
+
+```text
+tailored_resumes/
+```
+
+Use this folder when you just want the final resume files in one place. Each application folder remains the complete packet with fit analysis, job description, proposed edits, and render-check output.
