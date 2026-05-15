@@ -13,6 +13,8 @@ resume-optimizer/resumes/*.pdf
 !resume-optimizer/resumes/.gitkeep
 resume-optimizer/applications/
 resume-optimizer/tailored_resumes/
-resume-optimizer/tracker/
+resume-optimizer/tracker/*
+!resume-optimizer/tracker/.gitkeep
 resume-optimizer/jobs/*.txt
 !resume-optimizer/jobs/job.txt
+resume-optimizer/jobs/queue.csv
