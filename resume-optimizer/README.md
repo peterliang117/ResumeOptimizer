@@ -199,3 +199,28 @@ closed
 ```
 
 Use `scripts/tracker.py` to update it manually when you start or submit an application. Keep final submission manual unless you explicitly choose browser-assisted form filling for a specific job.
+
+## Browser-Assisted Form Filling
+
+Create a private application-answer file from the example:
+
+```bash
+cp profile/application_answers.example.json profile/application_answers.json
+```
+
+Fill `profile/application_answers.json` with only facts you are comfortable reusing in job applications. The real file is ignored by Git.
+
+The browser-assisted flow may prefill:
+
+- standard contact fields
+- work authorization fields when the wording exactly matches your private facts
+- race, gender, veteran, and disability self-ID only from explicit values in the private file
+
+The flow may draft, but must stop for review on:
+
+- custom essay or short-answer questions
+- unusual sponsorship wording
+- legal attestations
+- final submit
+
+Legal attestations use `review_required` by default. Do not change `allow_click_legal_attestations` or `allow_final_submit` to `true` unless you intentionally want to remove those guardrails.
