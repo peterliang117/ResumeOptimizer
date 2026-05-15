@@ -18,3 +18,4 @@ resume-optimizer/tracker/*
 resume-optimizer/jobs/*.txt
 !resume-optimizer/jobs/job.txt
 resume-optimizer/jobs/queue.csv
+resume-optimizer/profile/application_answers.json
