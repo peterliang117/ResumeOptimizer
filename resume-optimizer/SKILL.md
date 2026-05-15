@@ -74,6 +74,28 @@ Use a staged automation lifecycle:
 
 Do not auto-submit applications. Do not bypass job-board login, anti-bot controls, or custom employer questions.
 
+## Browser-Assisted Form Filling
+
+Use `profile/application_answers.json` as the private source of truth for form filling. If it does not exist, ask the user to create it from `profile/application_answers.example.json`.
+
+Allowed automatic prefills:
+
+- Standard contact fields from `standard_fields`.
+- Work authorization fields only when the form wording exactly matches `work_authorization`.
+- Race, gender, veteran, and disability self-identification only from explicit values in `self_identification`; never infer or guess these values.
+
+Review-required fields:
+
+- Unusual sponsorship wording.
+- Custom essay or short-answer questions. Draft from `custom_answer_facts`, resume facts, and job context, then ask the user to approve or edit.
+- Legal attestations, certifications, background check consent, terms, privacy acknowledgements, and any final submit action.
+
+Respect `answer_policy`:
+
+- If `allow_click_legal_attestations` is false, do not click legal attestation boxes.
+- If `allow_final_submit` is false, stop before final submission.
+- If a field is missing from the private fact file, ask the user instead of guessing.
+
 ## Suggested Commands
 
 ```bash
