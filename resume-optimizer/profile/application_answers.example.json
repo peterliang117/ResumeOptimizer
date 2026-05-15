@@ -1,0 +1,47 @@
+{
+  "standard_fields": {
+    "first_name": "Zicong",
+    "last_name": "Liang",
+    "email": "your.email@example.com",
+    "phone": "+1 000-000-0000",
+    "city": "New York",
+    "state": "NY",
+    "country": "United States",
+    "linkedin": "https://www.linkedin.com/in/example",
+    "github": "https://github.com/example",
+    "portfolio": ""
+  },
+  "work_authorization": {
+    "authorized_to_work_us": "Yes",
+    "requires_sponsorship_now": "No",
+    "requires_sponsorship_future": "No",
+    "requires_sponsorship_note": "Use only when the question wording exactly matches these facts. If wording is unusual, pause for review."
+  },
+  "self_identification": {
+    "gender": "Prefer not to answer",
+    "race_ethnicity": "Prefer not to answer",
+    "veteran_status": "Prefer not to answer",
+    "disability_status": "Prefer not to answer"
+  },
+  "legal_attestations": {
+    "information_is_true": "review_required",
+    "background_check_consent": "review_required",
+    "terms_and_conditions": "review_required",
+    "privacy_policy_acknowledgement": "review_required"
+  },
+  "custom_answer_facts": [
+    {
+      "topic": "data engineering",
+      "fact": "Summarize a truthful project or achievement here.",
+      "use_for": ["custom essay", "short answer"]
+    }
+  ],
+  "answer_policy": {
+    "allow_prefill_sensitive_self_id": true,
+    "allow_prefill_standard_fields": true,
+    "allow_prefill_exact_work_authorization": true,
+    "allow_draft_custom_essays": true,
+    "allow_click_legal_attestations": false,
+    "allow_final_submit": false
+  }
+}
