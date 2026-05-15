@@ -68,6 +68,55 @@ python scripts/tailor.py \
 
 Some job boards block automated fetching or require login. If that happens, paste the job description into `jobs/job.txt` and use `--job jobs/job.txt`.
 
+## Job Search Queue
+
+Keep jobs you want to evaluate in a local queue:
+
+```bash
+python scripts/job_queue.py add \
+  --company "Example Co" \
+  --role "Senior Data Engineer" \
+  --source "LinkedIn" \
+  --url "https://example.com/job" \
+  --priority high
+```
+
+List or inspect the queue:
+
+```bash
+python scripts/job_queue.py list
+python scripts/job_queue.py next
+```
+
+The real queue lives at `jobs/queue.csv` and is ignored by Git. Use `jobs/queue.example.csv` as the portable template.
+
+## Application Pipeline
+
+Prepare an application packet from a job URL:
+
+```bash
+python scripts/run_application_pipeline.py \
+  --company "Example Co" \
+  --role "Senior Data Engineer" \
+  --job-url "https://example.com/job" \
+  --resume resumes/master.docx
+```
+
+This creates the application folder, stores the job description, runs fit analysis, writes `proposed_edits.json`, updates the tracker to `analyzed`, and stops for chat review.
+
+After you approve edits, save them as an accepted-edits JSON file and run:
+
+```bash
+python scripts/run_application_pipeline.py \
+  --company "Example Co" \
+  --role "Senior Data Engineer" \
+  --job-url "https://example.com/job" \
+  --resume resumes/master.docx \
+  --accepted-edits applications/Example_Co_Senior_Data_Engineer/accepted_edits.json
+```
+
+That generates the tailored resume, runs the one-page check, copies the final DOCX into `tailored_resumes/`, and updates `tracker/applications.csv` to `resume_ready`.
+
 Apply accepted edits from a JSON file:
 
 ```bash
@@ -127,3 +176,26 @@ tailored_resumes/
 ```
 
 Use this folder when you just want the final resume files in one place. Each application folder remains the complete packet with fit analysis, job description, proposed edits, and render-check output.
+
+## Tracker
+
+The tracker is a local CSV at:
+
+```text
+tracker/applications.csv
+```
+
+Statuses:
+
+```text
+queued
+analyzed
+resume_ready
+application_started
+submitted
+rejected
+interview
+closed
+```
+
+Use `scripts/tracker.py` to update it manually when you start or submit an application. Keep final submission manual unless you explicitly choose browser-assisted form filling for a specific job.
