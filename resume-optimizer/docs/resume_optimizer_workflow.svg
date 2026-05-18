@@ -1,113 +1,155 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1120" viewBox="0 0 1800 1120">
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1180" viewBox="0 0 1800 1180">
   <defs>
     <style>
-      .bg{fill:#f5f5f7}.title{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','Helvetica Neue',Arial,sans-serif;font-size:54px;font-weight:700;fill:#1d1d1f}.sub{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',Arial,sans-serif;font-size:24px;fill:#6e6e73}.card{fill:#fff;stroke:#d2d2d7;stroke-width:1.5}.cardBlue{fill:#fff;stroke:#0071e3;stroke-width:3}.h{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',Arial,sans-serif;font-size:23px;font-weight:700;fill:#1d1d1f}.t{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',Arial,sans-serif;font-size:18px;fill:#424245}.small{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',Arial,sans-serif;font-size:16px;fill:#6e6e73}.num{fill:#0071e3;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',Arial,sans-serif;font-size:18px;font-weight:700}.arrow{stroke:#86868b;stroke-width:2;fill:none;marker-end:url(#arrow)}.blue{fill:#0071e3}.pill{fill:#e8f2ff;stroke:#b8d8ff}.shadow{filter:url(#shadow)}
+      .bg{fill:#f6f7f9}
+      .title{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;font-size:54px;font-weight:700;fill:#1b1f24}
+      .sub{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;font-size:24px;fill:#5f6b7a}
+      .card{fill:#fff;stroke:#d7dce2;stroke-width:1.5}
+      .gate{fill:#fff;stroke:#0b6bcb;stroke-width:3}
+      .warn{fill:#fff7e6;stroke:#d18b00;stroke-width:2}
+      .done{fill:#ecf8ef;stroke:#35a853;stroke-width:2}
+      .h{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;font-size:23px;font-weight:700;fill:#1b1f24}
+      .t{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;font-size:18px;fill:#364150}
+      .small{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;font-size:16px;fill:#5f6b7a}
+      .num{fill:#0b6bcb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;font-size:18px;font-weight:700}
+      .arrow{stroke:#7a8594;stroke-width:2.2;fill:none;marker-end:url(#arrow)}
+      .blue{fill:#0b6bcb}
+      .green{fill:#35a853}
+      .orange{fill:#d18b00}
+      .pill{fill:#edf5ff;stroke:#b9d8f6}
+      .shadow{filter:url(#shadow)}
     </style>
-    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#000" flood-opacity="0.09"/></filter>
-    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M2,2 L10,6 L2,10" fill="none" stroke="#86868b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></marker>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#000" flood-opacity="0.08"/>
+    </filter>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M2,2 L10,6 L2,10" fill="none" stroke="#7a8594" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
   </defs>
-  <rect class="bg" width="1800" height="1120"/>
-  <text class="title" x="90" y="95">Resume Optimizer Workflow</text>
-  <text class="sub" x="92" y="133">Truth-first tailoring, mandatory chat review, one-page validation, manual submit only</text>
+
+  <rect class="bg" width="1800" height="1180"/>
+  <text class="title" x="80" y="92">Automated Job Application Workflow</text>
+  <text class="sub" x="82" y="130">LinkedIn search, match scoring, truth-first resume tailoring, fact-gated form fill, and local tracking</text>
 
   <g class="shadow">
-    <rect class="card" x="70" y="200" width="300" height="190" rx="28"/>
-    <text class="num" x="100" y="240">01</text><text class="h" x="140" y="240">Inputs</text>
-    <text class="t" x="100" y="284">Master DOCX resume</text>
-    <text class="t" x="100" y="316">profile/facts.md truth source</text>
-    <text class="t" x="100" y="348">Job URL or pasted JD</text>
+    <rect class="card" x="70" y="190" width="300" height="185" rx="18"/>
+    <text class="num" x="100" y="232">01</text>
+    <text class="h" x="140" y="232">Search LinkedIn</text>
+    <text class="t" x="100" y="276">Recent Data Engineer roles</text>
+    <text class="t" x="100" y="308">Target base pay around 170K</text>
+    <text class="t" x="100" y="340">Use logged-in browser session</text>
   </g>
-  <path class="arrow" d="M370 295 H430"/>
+  <path class="arrow" d="M370 282 H425"/>
 
   <g class="shadow">
-    <rect class="card" x="430" y="200" width="300" height="190" rx="28"/>
-    <text class="num" x="460" y="240">02</text><text class="h" x="500" y="240">Capture Job</text>
-    <text class="t" x="460" y="284">Fetch public job text</text>
-    <text class="t" x="460" y="316">If blocked, paste JD into</text>
-    <text class="t" x="460" y="348">job_description.txt</text>
+    <rect class="card" x="425" y="190" width="300" height="185" rx="18"/>
+    <text class="num" x="455" y="232">02</text>
+    <text class="h" x="495" y="232">Capture Job</text>
+    <text class="t" x="455" y="276">Open job post or ATS link</text>
+    <text class="t" x="455" y="308">Read job description</text>
+    <text class="t" x="455" y="340">Save JD and queue item</text>
   </g>
-  <path class="arrow" d="M730 295 H790"/>
+  <path class="arrow" d="M725 282 H780"/>
 
   <g class="shadow">
-    <rect class="card" x="790" y="200" width="300" height="190" rx="28"/>
-    <text class="num" x="820" y="240">03</text><text class="h" x="860" y="240">Parse Resume</text>
-    <text class="t" x="820" y="284">Read DOCX body + tables</text>
-    <text class="t" x="820" y="316">Preserve formatting base</text>
-    <text class="t" x="820" y="348">Original unchanged</text>
+    <rect class="card" x="780" y="190" width="300" height="185" rx="18"/>
+    <text class="num" x="810" y="232">03</text>
+    <text class="h" x="850" y="232">Score Match</text>
+    <text class="t" x="810" y="276">Resume and profile evidence</text>
+    <text class="t" x="810" y="308">Skills, seniority, pay, recency</text>
+    <text class="t" x="810" y="340">Reject low-match jobs</text>
   </g>
-  <path class="arrow" d="M1090 295 H1150"/>
+  <path class="arrow" d="M1080 282 H1135"/>
 
   <g class="shadow">
-    <rect class="card" x="1150" y="200" width="300" height="190" rx="28"/>
-    <text class="num" x="1180" y="240">04</text><text class="h" x="1220" y="240">Analyze Fit</text>
-    <text class="t" x="1180" y="284">OpenAI API if configured</text>
-    <text class="t" x="1180" y="316">Fallback keyword scan</text>
-    <text class="t" x="1180" y="348">No unsupported claims</text>
+    <rect class="gate" x="1135" y="190" width="300" height="185" rx="18"/>
+    <circle class="blue" cx="1170" cy="226" r="16"/>
+    <path d="M1162 226 l6 6 l13 -15" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <text class="h" x="1200" y="232">High-Match Gate</text>
+    <text class="t" x="1165" y="276">Continue only when score passes</text>
+    <text class="t" x="1165" y="308">Confirm job is worth applying</text>
+    <text class="t" x="1165" y="340">Create application packet</text>
   </g>
-  <path class="arrow" d="M1450 295 H1510"/>
+  <path class="arrow" d="M1435 282 H1490"/>
 
   <g class="shadow">
-    <rect class="card" x="1510" y="200" width="220" height="190" rx="28"/>
-    <text class="num" x="1540" y="240">05</text><text class="h" x="1580" y="240">Edits</text>
-    <text class="t" x="1540" y="284">proposed_edits.json</text>
-    <text class="t" x="1540" y="316">Supported lines only</text>
-    <text class="t" x="1540" y="348">Low truth risk</text>
-  </g>
-
-  <path class="arrow" d="M1620 390 V465 H900 V520"/>
-  <g class="shadow">
-    <rect class="cardBlue" x="610" y="520" width="580" height="210" rx="32"/>
-    <circle class="blue" cx="660" cy="565" r="18"/><path d="M651 565 l7 7 l15 -17" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-    <text class="h" x="695" y="573">06 Mandatory Chat Review Gate</text>
-    <text class="t" x="650" y="620">Show original to suggested wording</text>
-    <text class="t" x="650" y="652">Explain reason, evidence source, truth risk</text>
-    <text class="t" x="650" y="684">User approves all, selected edits, or none</text>
-    <text class="t" x="650" y="716">No edits applied before approval</text>
+    <rect class="card" x="1490" y="190" width="240" height="185" rx="18"/>
+    <text class="num" x="1520" y="232">04</text>
+    <text class="h" x="1560" y="232">Tailor Resume</text>
+    <text class="t" x="1520" y="276">Propose edits only from</text>
+    <text class="t" x="1520" y="308">resume and facts.md</text>
+    <text class="t" x="1520" y="340">Preserve one-page DOCX</text>
   </g>
 
-  <path class="arrow" d="M1190 625 H1260"/>
+  <path class="arrow" d="M1610 375 V455 H900 V505"/>
   <g class="shadow">
-    <rect class="card" x="1260" y="520" width="420" height="210" rx="28"/>
-    <text class="num" x="1290" y="565">07</text><text class="h" x="1330" y="565">Generate Resume</text>
-    <text class="t" x="1290" y="610">Apply accepted edits to copy</text>
-    <text class="t" x="1290" y="642">Zicong_Liang_Company_Role_Resume.docx</text>
-    <text class="t" x="1290" y="674">Original resume unchanged</text>
+    <rect class="gate" x="575" y="505" width="650" height="220" rx="20"/>
+    <circle class="blue" cx="625" cy="552" r="18"/>
+    <path d="M616 552 l7 7 l16 -18" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <text class="h" x="660" y="560">Resume Edit Review Gate</text>
+    <text class="t" x="625" y="608">Show original wording, suggested wording, reason, evidence, and truth risk</text>
+    <text class="t" x="625" y="640">Apply only approved edits to a resume copy</text>
+    <text class="t" x="625" y="672">Run LibreOffice render check and keep the resume to one page</text>
   </g>
 
-  <path class="arrow" d="M1260 625 H1190"/>
-  <path class="arrow" d="M610 625 H500"/>
+  <path class="arrow" d="M1225 615 H1295"/>
   <g class="shadow">
-    <rect class="card" x="120" y="520" width="380" height="210" rx="28"/>
-    <text class="num" x="150" y="565">08</text><text class="h" x="190" y="565">Validate One Page</text>
-    <text class="t" x="150" y="610">LibreOffice render check</text>
-    <text class="t" x="150" y="642">render_check/same-name.pdf</text>
-    <text class="t" x="150" y="674">If more than 1 page, shorten and recheck</text>
+    <rect class="card" x="1295" y="505" width="405" height="220" rx="18"/>
+    <text class="num" x="1325" y="552">05</text>
+    <text class="h" x="1365" y="552">Open Application</text>
+    <text class="t" x="1325" y="600">LinkedIn Easy Apply or external ATS</text>
+    <text class="t" x="1325" y="632">Upload tailored resume</text>
+    <text class="t" x="1325" y="664">Use browser-assisted filling</text>
   </g>
 
-  <path class="arrow" d="M500 730 V805 H610"/>
+  <path class="arrow" d="M575 615 H505"/>
   <g class="shadow">
-    <rect class="card" x="610" y="805" width="460" height="210" rx="28"/>
-    <text class="num" x="640" y="850">09A</text><text class="h" x="695" y="850">applications/&lt;job&gt;/</text>
-    <text class="t" x="640" y="895">Resume DOCX + render PDF</text>
-    <text class="t" x="640" y="927">fit_analysis.json</text>
-    <text class="t" x="640" y="959">job_description.txt + proposed_edits.json</text>
+    <rect class="card" x="100" y="505" width="405" height="220" rx="18"/>
+    <text class="num" x="130" y="552">06</text>
+    <text class="h" x="170" y="552">Private Fact Sources</text>
+    <text class="t" x="130" y="600">profile/facts.md</text>
+    <text class="t" x="130" y="632">profile/application_answers.json</text>
+    <text class="t" x="130" y="664">Ignored by Git and kept local</text>
   </g>
 
-  <path class="arrow" d="M1070 910 H1140"/>
+  <path class="arrow" d="M1498 725 V795 H1170"/>
+  <path class="arrow" d="M302 725 V795 H630"/>
+
   <g class="shadow">
-    <rect class="card" x="1140" y="805" width="360" height="210" rx="28"/>
-    <text class="num" x="1170" y="850">09B</text><text class="h" x="1225" y="850">tailored_resumes/</text>
-    <text class="t" x="1170" y="895">Quick-access final copies</text>
-    <text class="t" x="1170" y="927">Same standardized filename</text>
-    <text class="t" x="1170" y="959">Application packet remains source</text>
+    <rect class="warn" x="430" y="795" width="940" height="210" rx="20"/>
+    <circle class="orange" cx="485" cy="842" r="18"/>
+    <text x="479" y="849" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif" font-size="24" font-weight="700" fill="#fff">?</text>
+    <text class="h" x="520" y="850">Fact-Gated Application Approval</text>
+    <text class="t" x="485" y="898">Auto-fill and auto-approve only when the exact answer is covered by private facts</text>
+    <text class="t" x="485" y="930">Covered examples: contact, authorization, H-1B transfer, relocation, 200K comp, self-ID</text>
+    <text class="t" x="485" y="962">If a field is missing, ambiguous, or differently worded, stop and ask for input</text>
+  </g>
+
+  <path class="arrow" d="M1370 900 H1450"/>
+  <g class="shadow">
+    <rect class="done" x="1450" y="795" width="280" height="210" rx="18"/>
+    <circle class="green" cx="1495" cy="842" r="18"/>
+    <path d="M1486 842 l7 7 l16 -18" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <text class="h" x="1530" y="850">Submit</text>
+    <text class="t" x="1490" y="898">Proceed only when all</text>
+    <text class="t" x="1490" y="930">required facts are covered</text>
+    <text class="t" x="1490" y="962">and final submit is allowed</text>
+  </g>
+
+  <path class="arrow" d="M900 1005 V1080 H700"/>
+  <g class="shadow">
+    <rect class="card" x="330" y="1035" width="740" height="95" rx="18"/>
+    <text class="num" x="365" y="1093">07</text>
+    <text class="h" x="405" y="1093">Track Application Locally</text>
+    <text class="t" x="685" y="1093">Update tracker/applications.csv and keep artifacts under applications/</text>
   </g>
 
   <g>
-    <rect class="pill" x="105" y="430" width="430" height="56" rx="18"/>
-    <text class="small" x="130" y="465">Optional only when requested: cover letter, recruiter message</text>
-    <rect class="pill" x="585" y="430" width="510" height="56" rx="18"/>
-    <text class="small" x="610" y="465">Private data excluded from Git: resumes, applications, tracker, outputs</text>
-    <rect class="pill" x="1145" y="430" width="250" height="56" rx="18"/>
-    <text class="small" x="1175" y="465">Manual submit only</text>
+    <rect class="pill" x="90" y="410" width="450" height="58" rx="14"/>
+    <text class="small" x="115" y="446">Do not scrape around login or anti-bot controls</text>
+    <rect class="pill" x="590" y="410" width="535" height="58" rx="14"/>
+    <text class="small" x="615" y="446">OpenAI API optional; local fallback and Codex review can be used</text>
+    <rect class="pill" x="1175" y="410" width="475" height="58" rx="14"/>
+    <text class="small" x="1200" y="446">Private files, resumes, applications, and tracker stay out of Git</text>
   </g>
 </svg>
