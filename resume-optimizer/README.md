@@ -6,6 +6,9 @@ The project keeps private job-search criteria, profile facts, application answer
 
 ![Resume Optimizer Workflow](docs/resume_optimizer_workflow.svg)
 
+See [docs/folder_structure.md](docs/folder_structure.md) for the tracked,
+private, and generated directory boundaries.
+
 ## Setup
 
 Install LibreOffice for PDF export.

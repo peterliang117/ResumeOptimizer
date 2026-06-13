@@ -2,6 +2,11 @@
 .Rhistory
 __pycache__/
 *.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 .env
 .env.*
 keys.txt
@@ -36,3 +41,4 @@ resume-optimizer/profile/*.private.*
 resume-optimizer/browser_state/
 resume-optimizer/screenshots/
 resume-optimizer/.playwright-cli/
+resume-optimizer/tmp/
