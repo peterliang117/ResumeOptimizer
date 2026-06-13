@@ -78,6 +78,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--tracker", type=Path, default=Path("tracker/applications.csv"))
     parser.add_argument("--accepted-edits", type=Path)
     parser.add_argument("--model", default=None)
+    parser.add_argument(
+        "--llm-provider",
+        choices=["auto", "azure", "none"],
+        default=None,
+        help="Suggestion backend passed through to tailor.py.",
+    )
     return parser.parse_args()
 
 
@@ -118,6 +124,8 @@ def main() -> int:
     ]
     if args.model:
         command.extend(["--model", args.model])
+    if args.llm_provider:
+        command.extend(["--llm-provider", args.llm_provider])
     run(command)
 
     suggestions = read_json(proposed_edits)
@@ -145,7 +153,8 @@ def main() -> int:
 
     accepted_edits = paths["accepted_edits"]
     assert isinstance(accepted_edits, Path)
-    shutil.copy2(args.accepted_edits, accepted_edits)
+    if args.accepted_edits.resolve() != accepted_edits.resolve():
+        shutil.copy2(args.accepted_edits, accepted_edits)
 
     resume_path = paths["resume"]
     assert isinstance(resume_path, Path)

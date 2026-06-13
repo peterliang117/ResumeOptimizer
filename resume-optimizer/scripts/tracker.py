@@ -20,6 +20,15 @@ TRACKER_FIELDS = [
     "application_folder",
     "submitted",
     "follow_up_date",
+    "stage",
+    "stage_date",
+    "next_action",
+    "contact_name",
+    "last_contact_date",
+    "email_status",
+    "email_subject",
+    "email_url",
+    "email_last_checked",
     "notes",
 ]
 
@@ -79,6 +88,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--application-folder", default="")
     parser.add_argument("--submitted", default="")
     parser.add_argument("--follow-up-date", default="")
+    parser.add_argument("--stage")
+    parser.add_argument("--stage-date")
+    parser.add_argument("--next-action")
+    parser.add_argument("--contact-name")
+    parser.add_argument("--last-contact-date")
+    parser.add_argument("--email-status")
+    parser.add_argument("--email-subject")
+    parser.add_argument("--email-url")
+    parser.add_argument("--email-last-checked")
     parser.add_argument("--notes", default="")
     return parser.parse_args()
 
@@ -97,6 +115,15 @@ def main() -> int:
             "application_folder": args.application_folder,
             "submitted": args.submitted,
             "follow_up_date": args.follow_up_date,
+            "stage": args.stage,
+            "stage_date": args.stage_date,
+            "next_action": args.next_action,
+            "contact_name": args.contact_name,
+            "last_contact_date": args.last_contact_date,
+            "email_status": args.email_status,
+            "email_subject": args.email_subject,
+            "email_url": args.email_url,
+            "email_last_checked": args.email_last_checked,
             "notes": args.notes,
         },
     )

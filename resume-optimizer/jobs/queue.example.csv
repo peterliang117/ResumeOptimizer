@@ -1,2 +1,2 @@
-company,role,source,url,status,priority,notes
-Example Co,Senior Data Engineer,LinkedIn,https://example.com/job,queued,high,Good match for data platform work
+company,role,source,url,status,priority,batch_id,match_score,notes
+Example Co,Senior Data Engineer,LinkedIn,https://example.com/job,queued,high,2026-06-06-01,86,Good match for data platform work

@@ -12,6 +12,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, quote, urlparse
 
 
 SUGGESTION_SCHEMA: dict[str, Any] = {
@@ -84,6 +85,10 @@ SUGGESTION_SCHEMA: dict[str, Any] = {
 }
 
 
+class LLMUnavailableError(RuntimeError):
+    """Raised when an optional LLM backend cannot be used."""
+
+
 @dataclass(frozen=True)
 class ResumeParagraph:
     paragraph_id: str
@@ -131,6 +136,44 @@ def load_url_text(url: str) -> str:
         from bs4 import BeautifulSoup
     except ImportError as exc:
         raise SystemExit("Install requests and beautifulsoup4 to load job URLs.") from exc
+
+    parsed_url = urlparse(url)
+    if parsed_url.netloc.lower() == "jobs.ashbyhq.com":
+        path_parts = [part for part in parsed_url.path.split("/") if part]
+        if len(path_parts) >= 2:
+            organization, job_id = path_parts[:2]
+            api_url = f"https://api.ashbyhq.com/posting-api/job-board/{organization}"
+            try:
+                api_response = requests.get(api_url, timeout=20)
+                api_response.raise_for_status()
+                jobs = api_response.json().get("jobs", [])
+            except (requests.RequestException, ValueError) as exc:
+                raise SystemExit(f"Could not fetch Ashby job board API: {exc}") from exc
+
+            for posting in jobs:
+                posting_url = str(posting.get("jobUrl", ""))
+                posting_id = urlparse(posting_url).path.rstrip("/").split("/")[-1]
+                if posting_id != job_id:
+                    continue
+                description = str(posting.get("descriptionPlain", "")).strip()
+                if not description:
+                    break
+                header = "\n".join(
+                    value
+                    for value in [
+                        str(posting.get("title", "")).strip(),
+                        str(posting.get("location", "")).strip(),
+                        str(posting.get("workplaceType", "")).strip(),
+                        str(posting.get("employmentType", "")).strip(),
+                    ]
+                    if value
+                )
+                return f"{header}\n\n{description}".strip()
+
+            raise SystemExit(
+                "Ashby job was not found on the employer's current public board. "
+                "The posting may be unlisted or expired."
+            )
 
     try:
         response = requests.get(
@@ -208,47 +251,199 @@ Job description:
 """.strip()
 
 
-def analyze_with_openai(prompt: str, model: str) -> dict[str, Any]:
+def normalize_azure_endpoint_candidate(value: str) -> str:
+    candidate = value.strip()
+    if not candidate:
+        return ""
+    if candidate.lower().startswith("https") and "://" not in candidate:
+        candidate = "https://" + candidate[5:]
+    marker = ".cognitiveservices.azure.com"
+    marker_index = candidate.lower().find(marker)
+    if marker_index != -1:
+        return candidate[: marker_index + len(marker)]
+    return candidate.rstrip("/")
+
+
+def discover_azure_keys_file() -> Path | None:
+    configured = os.getenv("AZURE_OPENAI_KEYS_FILE", "").strip()
+    if configured:
+        return Path(configured)
+    for base in [Path.cwd(), *Path.cwd().parents]:
+        candidate = base / "keys.txt"
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def parse_azure_keys_lines(lines: list[str]) -> dict[str, str]:
+    payload: dict[str, str] = {}
+    positional: list[str] = []
+    key_map = {
+        "AZURE_OPENAI_ENDPOINT": "endpoint",
+        "ENDPOINT": "endpoint",
+        "AZURE_OPENAI_API_KEY": "api_key",
+        "API_KEY": "api_key",
+        "KEY": "api_key",
+        "AZURE_OPENAI_DEPLOYMENT": "deployment",
+        "DEPLOYMENT": "deployment",
+        "AZURE_OPENAI_API_VERSION": "api_version",
+        "API_VERSION": "api_version",
+    }
+    for line in lines:
+        if "=" in line:
+            name, value = line.split("=", 1)
+            mapped = key_map.get(name.strip().upper())
+            if mapped:
+                payload[mapped] = value.strip().strip('"').strip("'")
+                continue
+        positional.append(line)
+
+    if positional:
+        payload.setdefault("endpoint", positional[0])
+    if len(positional) > 1:
+        payload.setdefault("api_key", positional[1])
+    if len(positional) > 2:
+        payload.setdefault("deployment", positional[2])
+    return payload
+
+
+def read_azure_keys_file() -> dict[str, str]:
+    path = discover_azure_keys_file()
+    if not path:
+        return {}
+    if not path.exists():
+        raise LLMUnavailableError(f"AZURE_OPENAI_KEYS_FILE does not exist: {path}")
+    lines = [
+        line.strip().lstrip("\ufeff")
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+    if len(lines) < 2:
+        raise LLMUnavailableError("AZURE_OPENAI_KEYS_FILE must contain an endpoint line and an API key line.")
+    payload = parse_azure_keys_lines(lines)
+    if len(payload.get("api_key", "")) < 20:
+        raise LLMUnavailableError("AZURE_OPENAI_KEYS_FILE API key line is missing or too short.")
+    endpoint = normalize_azure_endpoint_candidate(payload.get("endpoint", ""))
+    parsed = urlparse(endpoint)
+    if parsed.scheme != "https" or not parsed.netloc:
+        raise LLMUnavailableError("AZURE_OPENAI_KEYS_FILE endpoint line is not a valid Azure endpoint.")
+    api_version = ""
+    original = payload.get("endpoint", "")
+    if "://" in original:
+        api_version = parse_qs(urlparse(original).query).get("api-version", [""])[0]
+    return {
+        "endpoint": endpoint,
+        "api_key": payload.get("api_key", ""),
+        "deployment": payload.get("deployment", ""),
+        "api_version": payload.get("api_version", "") or api_version,
+    }
+
+
+def has_azure_config() -> bool:
+    try:
+        keys_payload = read_azure_keys_file()
+    except LLMUnavailableError:
+        return False
+    return bool(
+        (os.getenv("AZURE_OPENAI_ENDPOINT", "").strip() or keys_payload.get("endpoint"))
+        and (os.getenv("AZURE_OPENAI_DEPLOYMENT", "").strip() or keys_payload.get("deployment"))
+        and (
+            os.getenv("AZURE_OPENAI_API_KEY", "").strip()
+            or keys_payload.get("api_key")
+            or Path(os.getenv("AZURE_OPENAI_API_KEY_PATH", ".secrets/azure_openai_api_key")).exists()
+        )
+    )
+
+
+def read_azure_api_key(keys_payload: dict[str, str] | None = None) -> str:
+    if keys_payload and keys_payload.get("api_key"):
+        return keys_payload["api_key"]
+
+    api_key = os.getenv("AZURE_OPENAI_API_KEY", "").strip()
+    if api_key:
+        return api_key
+
+    key_path = Path(os.getenv("AZURE_OPENAI_API_KEY_PATH", ".secrets/azure_openai_api_key"))
+    if not key_path.exists():
+        raise LLMUnavailableError(
+            "Azure OpenAI API key not found. Set AZURE_OPENAI_API_KEY or "
+            f"create local-only key file {key_path}."
+        )
+    api_key = key_path.read_text(encoding="utf-8").strip()
+    if not api_key:
+        raise LLMUnavailableError(f"Azure OpenAI API key file is empty: {key_path}")
+    return api_key
+
+
+def analyze_with_azure_openai(prompt: str) -> dict[str, Any]:
     try:
         import requests
     except ImportError as exc:
-        raise SystemExit("Install requests or run without API by creating accepted edits manually.") from exc
+        raise LLMUnavailableError("Install requests to use Azure OpenAI analysis.") from exc
 
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        raise SystemExit("OPENAI_API_KEY is required for OpenAI analysis.")
+    keys_payload = read_azure_keys_file()
+    endpoint = (os.getenv("AZURE_OPENAI_ENDPOINT", "").strip() or keys_payload.get("endpoint", "")).rstrip("/")
+    deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT", "").strip() or keys_payload.get("deployment", "")
+    api_version = (
+        os.getenv("AZURE_OPENAI_API_VERSION", "").strip()
+        or keys_payload.get("api_version", "")
+        or "2025-04-01-preview"
+    )
+    if not endpoint or not deployment:
+        raise LLMUnavailableError("AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_DEPLOYMENT are required.")
 
-    base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+    api_key = read_azure_api_key(keys_payload)
+    deployment_path = quote(deployment, safe="")
+    url = f"{endpoint}/openai/deployments/{deployment_path}/chat/completions?api-version={api_version}"
     payload = {
-        "model": model,
-        "input": [
+        "messages": [
             {
                 "role": "system",
                 "content": "Return only structured JSON. Be conservative and truth-preserving.",
             },
             {"role": "user", "content": prompt},
         ],
-        "text": {
-            "format": {
-                "type": "json_schema",
+        "max_completion_tokens": 1800,
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {
                 "name": "resume_tailoring_suggestions",
                 "schema": SUGGESTION_SCHEMA,
                 "strict": True,
-            }
+            },
         },
     }
     response = requests.post(
-        f"{base_url}/responses",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
+        url,
+        headers={"Content-Type": "application/json", "api-key": api_key},
         json=payload,
         timeout=90,
     )
     if response.status_code >= 400:
-        raise SystemExit(f"OpenAI API error {response.status_code}: {response.text}")
-    return json.loads(extract_output_text(response.json()))
+        raise LLMUnavailableError(f"Azure OpenAI API error {response.status_code}: {response.text}")
+
+    data = response.json()
+    try:
+        content = data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise LLMUnavailableError("Azure OpenAI response did not include message content.") from exc
+    if not isinstance(content, str) or not content.strip():
+        raise LLMUnavailableError("Azure OpenAI response content was empty.")
+    return parse_json_text(content, source="Azure OpenAI")
+
+
+def parse_json_text(text: str, *, source: str) -> dict[str, Any]:
+    text = text.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise LLMUnavailableError(f"{source} response was not valid JSON: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise LLMUnavailableError(f"{source} response JSON must be an object.")
+    return payload
 
 
 def extract_output_text(response_payload: dict[str, Any]) -> str:
@@ -266,34 +461,59 @@ def extract_output_text(response_payload: dict[str, Any]) -> str:
     return "".join(chunks)
 
 
-def fallback_analysis(resume_paragraphs: list[ResumeParagraph], job_text: str) -> dict[str, Any]:
+def fallback_analysis(
+    resume_paragraphs: list[ResumeParagraph],
+    job_text: str,
+    reason: str | None = None,
+) -> dict[str, Any]:
+    stopwords = {
+        "and",
+        "are",
+        "base",
+        "build",
+        "company",
+        "days",
+        "for",
+        "from",
+        "have",
+        "into",
+        "looking",
+        "needs",
+        "our",
+        "per",
+        "posted",
+        "range",
+        "requires",
+        "responsibilities",
+        "role",
+        "salary",
+        "senior",
+        "that",
+        "the",
+        "this",
+        "through",
+        "with",
+        "will",
+        "year",
+        "you",
+        "your",
+    }
     tokens = sorted(
         {
-            token.lower()
+            token.strip(".,:;()[]{}").lower()
             for token in re.findall(r"[A-Za-z][A-Za-z+#.\-]{2,}", job_text)
-            if token.lower()
-            not in {
-                "and",
-                "the",
-                "for",
-                "with",
-                "you",
-                "our",
-                "are",
-                "this",
-                "that",
-                "will",
-                "from",
-                "your",
-                "have",
-            }
+            if token.strip(".,:;()[]{}").lower() not in stopwords
         }
     )
     resume_text = "\n".join(p.text for p in resume_paragraphs).lower()
     matched = [token for token in tokens if token in resume_text][:30]
     missing = [token for token in tokens if token not in resume_text][:20]
     return {
-        "job_summary": "Fallback keyword scan. Set OPENAI_API_KEY for rewrite suggestions.",
+        "job_summary": (
+            "Fallback keyword scan. Use Codex/manual review for rewrite suggestions."
+            if not reason
+            else f"Fallback keyword scan. Use Codex/manual review for rewrite suggestions. Reason: {reason}"
+        ),
         "must_have_skills": matched,
         "nice_to_have_skills": [],
         "matched_evidence": [
@@ -306,6 +526,29 @@ def fallback_analysis(resume_paragraphs: list[ResumeParagraph], job_text: str) -
             for token in missing
         ],
     }
+
+
+def analyze_resume_tailoring(
+    resume_paragraphs: list[ResumeParagraph],
+    job_text: str,
+    profile_facts: str,
+    *,
+    provider: str,
+    model: str,
+) -> dict[str, Any]:
+    prompt = build_prompt(resume_paragraphs, job_text, profile_facts)
+    if provider == "none":
+        return fallback_analysis(resume_paragraphs, job_text, "LLM provider disabled.")
+
+    if provider == "azure" or (provider == "auto" and has_azure_config()):
+        try:
+            suggestions = analyze_with_azure_openai(prompt)
+            suggestions["_analysis_backend"] = "azure_openai"
+            return suggestions
+        except LLMUnavailableError as exc:
+            return fallback_analysis(resume_paragraphs, job_text, f"Azure OpenAI unavailable: {exc}")
+
+    return fallback_analysis(resume_paragraphs, job_text, "Azure OpenAI is not configured.")
 
 
 def validate_edit(edit: dict[str, Any], paragraph_by_id: dict[str, str]) -> str | None:
@@ -375,7 +618,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--suggestions-out", type=Path, default=Path("outputs/suggestions.json"))
     parser.add_argument("--accepted-edits", type=Path, help="JSON file with accepted suggested_edits.")
     parser.add_argument("--dry-run", action="store_true", help="Only write suggestions JSON.")
-    parser.add_argument("--model", default=os.getenv("OPENAI_MODEL", "gpt-5.1"))
+    parser.add_argument("--model", default=None)
+    parser.add_argument(
+        "--llm-provider",
+        choices=["auto", "azure", "none"],
+        default=os.getenv("RESUME_OPTIMIZER_LLM_PROVIDER", "auto"),
+        help=(
+            "Suggestion backend. auto uses Azure OpenAI when AZURE_OPENAI_* is configured, "
+            "then falls back to local/Codex manual review."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -389,13 +641,13 @@ def main() -> int:
     resume_paragraphs = load_resume_paragraphs(args.resume)
 
     if args.dry_run or not args.accepted_edits:
-        if os.getenv("OPENAI_API_KEY"):
-            suggestions = analyze_with_openai(
-                build_prompt(resume_paragraphs, job_text, profile_facts),
-                args.model,
-            )
-        else:
-            suggestions = fallback_analysis(resume_paragraphs, job_text)
+        suggestions = analyze_resume_tailoring(
+            resume_paragraphs,
+            job_text,
+            profile_facts,
+            provider=args.llm_provider,
+            model=args.model,
+        )
         write_json(args.suggestions_out, suggestions)
         print(f"Wrote suggestions: {args.suggestions_out}")
         if args.dry_run:

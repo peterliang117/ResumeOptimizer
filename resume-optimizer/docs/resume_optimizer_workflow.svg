@@ -45,7 +45,7 @@
     <text class="num" x="110" y="312">01</text>
     <text class="h" x="150" y="312">Search LinkedIn</text>
     <text class="t" x="110" y="356">Recent Data Engineer roles</text>
-    <text class="t" x="110" y="388">Target base pay around 170K</text>
+    <text class="t" x="110" y="388">Target pay from private criteria</text>
     <text class="t" x="110" y="420">Use logged-in browser session</text>
   </g>
   <path class="arrow" d="M380 362 H455"/>
@@ -130,7 +130,7 @@
     <text x="574" y="872" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif" font-size="24" font-weight="700" fill="#fff">?</text>
     <text class="h" x="615" y="873">Fact-Gated Approval</text>
     <text class="t" x="580" y="921">Auto-fill and auto-approve only when exact answers are covered</text>
-    <text class="t" x="580" y="953">Covered: contact, authorization, H-1B, relocation, comp, self-ID</text>
+    <text class="t" x="580" y="953">Covered answers must come from local private profile files</text>
     <text class="t" x="580" y="985">If missing, ambiguous, or differently worded, stop and ask</text>
   </g>
   <path class="arrow" d="M1130 912 H1205"/>
