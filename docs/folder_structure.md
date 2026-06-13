@@ -6,7 +6,7 @@ state, and reproducible generated artifacts.
 ## Tracked Source
 
 ```text
-resume-optimizer/
+ResumeOptimizer/
 |-- README.md
 |-- SKILL.md
 |-- DATA_CONTRACT.md
@@ -71,9 +71,8 @@ archival or deletion.
 
 ## Workspace Boundary
 
-The Git repository is `JobSearch/ResumeOptimizer`. The active application is
-`JobSearch/ResumeOptimizer/resume-optimizer`. The extra level is retained
-because existing automations and Codex project history use that exact path.
+The Git repository and active application share one root:
+`JobSearch/ResumeOptimizer`. Run commands from this directory.
 
 The parent `JobSearch/keys.txt` and `JobSearch/azure_llm_request.py` remain
 local-only compatibility files for Azure connectivity.
