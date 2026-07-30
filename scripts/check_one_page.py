@@ -1,0 +1,96 @@
+#!/usr/bin/env python3
+"""Export a DOCX to PDF with LibreOffice and check the PDF page count."""
+
+from __future__ import annotations
+
+import argparse
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+
+def find_soffice() -> str:
+    mac_path = Path("/Applications/LibreOffice.app/Contents/MacOS/soffice")
+    if mac_path.exists():
+        return str(mac_path)
+    windows_paths = [
+        Path(os.environ.get("PROGRAMFILES", "")) / "LibreOffice/program/soffice.exe",
+        Path(os.environ.get("PROGRAMFILES(X86)", "")) / "LibreOffice/program/soffice.exe",
+    ]
+    for windows_path in windows_paths:
+        if windows_path.exists():
+            return str(windows_path)
+    soffice = shutil.which("soffice")
+    if soffice:
+        return soffice
+    soffice_exe = shutil.which("soffice.exe")
+    if soffice_exe:
+        return soffice_exe
+    raise SystemExit(
+        "LibreOffice not found. Install it from https://www.libreoffice.org/download/ "
+        "or with: brew install --cask libreoffice"
+    )
+
+
+def convert_to_pdf(docx: Path, outdir: Path) -> Path:
+    outdir.mkdir(parents=True, exist_ok=True)
+    profile_dir = Path(tempfile.mkdtemp(prefix="lo-profile-")).resolve()
+    command = [
+        find_soffice(),
+        "--headless",
+        "--norestore",
+        "--nofirststartwizard",
+        f"-env:UserInstallation={profile_dir.as_uri()}",
+        "--convert-to",
+        "pdf",
+        "--outdir",
+        str(outdir),
+        str(docx),
+    ]
+    env = os.environ.copy()
+    result = subprocess.run(command, check=False, capture_output=True, text=True, env=env)
+    if result.returncode != 0:
+        raise SystemExit(result.stderr or result.stdout or "LibreOffice PDF conversion failed.")
+    pdf = outdir / f"{docx.stem}.pdf"
+    if not pdf.exists():
+        raise SystemExit(f"Expected PDF was not created: {pdf}")
+    return pdf
+
+
+def count_pdf_pages(pdf: Path) -> int:
+    try:
+        import fitz
+    except ImportError as exc:
+        raise SystemExit("Install PyMuPDF to count PDF pages.") from exc
+
+    with fitz.open(pdf) as document:
+        return document.page_count
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Check whether a DOCX exports to a one-page PDF.")
+    parser.add_argument("--docx", required=True, type=Path)
+    parser.add_argument("--outdir", type=Path, default=Path("outputs"))
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = parse_args()
+    if not args.docx.exists():
+        raise SystemExit(f"DOCX not found: {args.docx}")
+
+    pdf = convert_to_pdf(args.docx, args.outdir)
+    pages = count_pdf_pages(pdf)
+    print(f"{pdf}: {pages} page(s)")
+    if pages > 1:
+        print("Resume exceeds one page. Shorten accepted edits or remove lower-priority bullets.")
+        return 2
+    print("Resume fits on one page.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

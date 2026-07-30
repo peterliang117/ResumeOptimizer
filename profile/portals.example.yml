@@ -1,0 +1,45 @@
+# Portal Scanner Template
+#
+# Copy to profile/portals.yml and customize locally. The real file is private
+# because it may reveal target companies and search strategy.
+
+title_keywords:
+  - Data Engineer
+  - Analytics Engineer
+  - Data Platform
+  - Risk Analytics
+  - Insights Analyst
+
+negative_keywords:
+  - Intern
+  - Junior
+
+locations:
+  - New York
+  - Jersey City
+  - Remote
+  - United States
+
+companies:
+  - name: Chime Financial, Inc
+    provider: greenhouse
+    board: chime
+    enabled: true
+
+  - name: Example Ashby Employer
+    provider: ashby
+    board: employer-board-slug
+    enabled: false
+
+  - name: Example Lever Employer
+    provider: lever
+    site: employer-site-slug
+    enabled: false
+
+  - name: Example Workday Employer
+    provider: workday
+    # Copy the public CXS endpoint from the employer career site's network calls.
+    api: https://employer.wd1.myworkdayjobs.com/wday/cxs/tenant/career-site/jobs
+    site: career-site
+    search: data
+    enabled: false
