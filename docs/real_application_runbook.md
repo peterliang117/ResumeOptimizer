@@ -1,42 +1,74 @@
 ﻿# Real Application Runbook
 
+## Scheduled Local Maintenance
+
+The Codex heartbeat is the single browser-owning coordinator. It wakes every 30
+minutes to continue queued applications and remote exceptions. Direct-employer
+and LinkedIn discovery has an independent two-hour cursor; Outlook outcome
+reconciliation runs every four hours. Do not install a second browser-owning
+cron or Windows task. `scripts/local_automation.py` may still be run manually
+for local-only maintenance, but it must not overlap the heartbeat pipeline.
+
 Use this runbook before and during each real application. It captures lessons from the Addison Group LinkedIn Easy Apply case, the Carlyle external Avature case, and the Goldman Sachs Oracle ATS case.
 
 ## Standard Sequence
 
-1. Check the current batch with
-   `python scripts/job_queue.py batch-status --target-size 10`.
-2. If the current batch still has open jobs, continue that batch and do not
-   perform replacement discovery.
-3. If no batch exists or `refill_ready=yes`, find roles using all approved job
+1. Run rolling-queue maintenance with
+   `python scripts/queue_maintenance.py --expire-stale --capacity 10 --low-watermark 3`.
+   Treat SQLite (`data/resume_optimizer.db`) as the state authority. The queue
+   and tracker CSV files remain generated compatibility exports.
+2. Continue ready jobs in calibrated-score order. When `refill_recommended` is
+   true, search enough candidates to fill `available_slots`; do not wait for a
+   closed batch to be exhausted.
+3. Find roles using all approved job
    platforms, with LinkedIn and direct employer ATS sources included:
    - Read private criteria from `profile/search_criteria.md`.
    - If it is missing, copy `profile/search_criteria.example.md` and fill it locally.
-   - Prefer roles that match the local criteria for keywords, locations, recency, pay, work mode, and sponsorship screen.
+   - Prefer roles that match the local criteria for technical scope, locations,
+     recency, pay, work mode, and sponsorship screen. Do not reject a role only
+     because the title is adjacent if the live posting shows a strong technical
+     stack match.
    - Open LinkedIn searches with `python scripts/linkedin_search.py --open`.
      Do not pass raw LinkedIn query URLs through `cmd.exe`, and never encode
      query separators as `%26` or `&amp;`; doing so merges every filter into the
      keyword value.
-4. Hard-screen and rank candidates, then immediately queue every verified match
-   with a shared `batch_id` and stored `match_score`, up to 10 jobs. A partial
-   batch is valid and must not be withheld while waiting for more candidates.
-5. Save each exact job description locally under `jobs/<company>_<role>.txt`.
-6. Process all queued jobs in descending match-score order.
-7. Identify unsupported requirements before writing edits.
-8. Create a company-specific application packet under `applications/<Company>_<Role>/`.
-9. Generate only truthful resume edits from `resumes/master.docx` and
+4. Save each exact job description locally under `jobs/<company>_<role>.txt`,
+   then run `scripts/discovery.py` with the candidate metadata. It rejects a
+   candidate unless a direct-employer URL, live timestamp, location/work mode,
+   compensation, role core, sponsorship screen, and deduplication check pass.
+5. Queue every verified candidate. Preserve its base score, outcome calibration,
+   evidence, and role family. A partial refill is valid.
+6. Identify unsupported requirements before writing edits.
+7. Create a company-specific application packet under `applications/<Company>_<Role>/`.
+8. Generate only truthful resume edits from `resumes/master.docx` and
    `profile/facts.md`. Automatically apply low-risk, fully evidenced edits;
    stop only for ambiguous, unsupported, or medium/high-risk edits.
-10. Run the one-page check with LibreOffice before uploading.
-11. For FAANG-level or comparable large technology employers, stop after the
-    one-page resume and application packet are ready. Give the user the direct
-    job link and local resume path, mark the job `manual_apply_needed`, and wait
-    for the user to submit manually. Do not fill or submit the application.
-12. For other employers, upload the company-specific resume, not an older generic resume and not a resume tailored for another company.
-13. Fill forms from `profile/application_answers.json`.
-14. Auto-continue through legal/privacy attestations, sensitive self-ID fields, and final submit only when the exact answer or approval is covered by `profile/facts.md` or `profile/application_answers.json`; otherwise stop for user input.
-15. Update `tracker/applications.csv` after each meaningful state change and move
-    immediately to the next job in the batch.
+   Use `scripts/resume_evidence.py validate` before applying machine-generated
+   edits, and select the evidence-backed role-family variant in the application
+   pipeline.
+   Review `ai_selection_report.json` before accepting edits. The resume must
+   maximize supported must-have and core criterion visibility, preserve
+   transferable/unsupported gaps, and pass the parser audit. Rebuild the local
+   single-column base with `scripts/build_ats_resume.py --update-manifest` after
+   material master-resume changes.
+9. Run the one-page check with LibreOffice before uploading.
+10. Apply the same exact-fact automation policy to every verified direct
+    employer, including large technology companies. Employer size alone is not
+    a manual-submit gate.
+11. Upload the company-specific resume, not an older generic resume and not a resume tailored for another company.
+12. Use `scripts/ats_adapter.py` to map only exact, policy-authorized form
+    labels from `profile/application_answers.json`. Treat every unfamiliar label
+    as a manual-review gate.
+13. Auto-continue through legal/privacy attestations, sensitive self-ID fields, and final submit only when the exact answer or approval is covered by `profile/facts.md` or `profile/application_answers.json`; otherwise stop for user input.
+14. If autofill, upload, browser access, account login, CAPTCHA, required user
+    interaction, or submit cannot be completed automatically, stop with a
+    manual handoff that includes the direct application link, company and role,
+    local resume path, exact blocker, completed answers, unanswered required
+    fields, and current tracker status. Never hand off a blocked application
+    without the link the user can open.
+15. Update state through `scripts/application_state.py` after each meaningful
+    change. It writes the job, application, and event in one SQLite transaction,
+    then refreshes both CSV exports.
 16. Reconcile Outlook messages against active applications:
     - application receipt -> `submitted`
     - interview invitation -> `interview`
@@ -44,21 +76,25 @@ Use this runbook before and during each real application. It captures lessons fr
     - next round -> `interview` with stage `next_round`
     - offer -> `offer`
     - explicit rejection -> `rejected`
-17. Store only email metadata and the Outlook link, not message bodies.
-18. After all queued jobs are terminal or handed off, start the next discovery
-    run and queue whatever verified matches are available, up to 10.
+17. Store only email metadata and the Outlook link, not message bodies. Run
+    `scripts/outcome_metrics.py` periodically; it calibrates source and
+    role-family scores only after enough outcomes are observed.
+18. Continue application work and rolling discovery until capacity is filled.
 
 ## Post-Application Monitoring
 
 1. Read active tracker rows and build a focused list of company names, roles,
    recruiter contacts, and submission dates.
 2. Use the Codex Outlook Email connector to inspect messages received after the
-   earliest active submission.
+   date returned by `scripts/scheduled_reconcile.py manifest`.
 3. Prefer focused subject filters such as `contains(subject,'Company')`.
    Personal Microsoft accounts may reject Graph full-text search.
 4. Treat scheduling invitations and recruiter messages as higher-confidence
    signals than generic application portal mail.
 5. Update the tracker with `scripts/mailbox_reconcile.py`.
+   For recurring runs, write metadata-only events to `tmp/mailbox_events.json`
+   and apply them with `scripts/scheduled_reconcile.py apply-events`. If no
+   clear event exists, run `scripts/scheduled_reconcile.py mark-checked`.
 6. For a completed recruiter or HR screen, use:
    - status: `interview`
    - stage: `recruiter_screen_completed`
@@ -66,6 +102,130 @@ Use this runbook before and during each real application. It captures lessons fr
    - follow-up date: seven calendar days after the call unless a different
      timeline was stated
 7. Do not infer rejection from silence. Create a follow-up action instead.
+
+## Scheduled Outlook Job-Alert Discovery
+
+Keep this path separate from post-application monitoring. A LinkedIn alert is a
+discovery lead, never evidence that an application was received, advanced, or
+rejected.
+
+1. Run `scripts/scheduled_reconcile.py alert-manifest` and list Outlook messages
+   received after its `since_datetime`. Filter for LinkedIn job-alert senders;
+   do not use Microsoft Graph full-text search on the personal account.
+2. Extract only public job metadata: LinkedIn job ID/direct URL, company, role,
+   location, work mode, and alert receipt time. Do not store the email body,
+   SafeLink, attachment, credential, or token, and do not alter mailbox state.
+3. Deduplicate against SQLite and within the alert. Treat near-identical roles
+   at the same employer as one lead unless the postings are materially distinct.
+4. Open each live posting and verify the normal hard gates: direct employer,
+   current availability, posted/reposted within seven days, location/work mode,
+   compensation, role-core fit, employer concentration, and sponsorship. Silence
+   about sponsorship remains eligible; explicit no-sponsorship wording is a
+   rejection.
+5. Queue every verified match, even when fewer than 10 survive. Never use alert
+   receipt time as the posting timestamp and never infer missing salary.
+6. Run the normal packet pipeline in calibrated-score order using local Codex.
+   For verified direct-employer applications, scheduled runs may upload, fill, and
+   submit without per-job approval only when every required value and consent is
+   exactly covered by the private facts and enabled answer policy.
+7. Apply the adaptive attempt budget at every live-posting and ATS stage. When a
+   posting is stale, blocked, duplicated, or taking too long, record the reason
+   and continue to the next lead.
+8. After processing the alert slice, run
+   `scripts/scheduled_reconcile.py mark-alerts-checked`, refresh the tracker, and
+   verify it. A repeated run remains safe because SQLite deduplication rejects
+   already-active URLs and company/role identities.
+
+## Remote Approval By Outlook
+
+When the user is away from the Codex desktop, use Outlook approval only for an
+exception that is not already covered by the standing private answer policy.
+
+1. Standard exact-fact resume upload, form fill, legal/privacy controls, self-ID,
+   and final submit need no per-job approval when their corresponding policy
+   flags are enabled. Never extend this to an inferred or approximate answer.
+2. Inspect all reachable form steps before requesting input. For unfamiliar
+   required answers, ambiguous/conflicting facts, unusual consent, or a material
+   form change, create one answer-scope request per exact question. Keep all
+   distinct questions for the same job pending and send them together in one
+   numbered message with fact-grounded proposed answers when available.
+3. The user may answer the numbered batch directly in the current Codex task or
+   reply by Outlook. For Outlook, accept each non-quoted decision line only when
+   it exactly matches one pending token, the sender exactly matches the
+   configured address, and the token is unexpired. Record every accepted line
+   separately with `remote_approval.py decide`. Ambiguous combined replies
+   authorize nothing.
+4. Immediately before each exceptional action, call `remote_approval.py consume`
+   with the same company, role, canonical URL, scope, and exact question for
+   answer requests. A mismatch, ambiguity, expiry, or previously consumed token
+   blocks the action.
+5. Tokens expire after 12 hours by default, are single-use, and are stored only
+   as SHA-256 hashes in local SQLite. Never include private facts, application
+   answers, full resume contents, or credentials in approval email bodies.
+6. Accept only these first-line phone replies: `APPROVE <token>` to accept the
+   proposed answer/action, `YES <token>`, `NO <token>`,
+   `ANSWER <token>: <answer>`, or `SKIP <token>`. The answer variants are valid
+   only for answer-scope tokens. Any other reply authorizes nothing.
+
+Use these fixed Outlook subject prefixes:
+
+- `[ResumeOptimizer Approval] TRANSMIT - <Company> - <Role>` for a scoped
+  transmission exception token.
+- `[ResumeOptimizer Approval] SUBMIT - <Company> - <Role>` for a scoped final
+  submission exception token.
+- `[ResumeOptimizer Input Needed] <Company> - <Role>` for an uncovered required
+  answer.
+- `[ResumeOptimizer Browser Action Needed] <Company> - <Role>` for login, OTP,
+  CAPTCHA, or another browser-only blocker.
+- `[ResumeOptimizer Submitted] <Company> - <Role>` after automatic submission.
+- `[ResumeOptimizer Pipeline Alert] <Stage>` only for a validation or automation
+  failure requiring attention.
+
+Do not send an email when no action or meaningful state change exists. Keep
+approval tokens in the message body, never in the subject line.
+
+## Cadenced Full Pipeline
+
+1. On a due cycle, acquire `scripts/pipeline_lock.py acquire`. If another run
+   owns the lock, exit quietly; never run two browser actors.
+2. Reconcile explicit Outlook outcomes, then maintain and process existing queue
+   items before replacement discovery.
+3. Refill available capacity up to 10 from LinkedIn alerts, LinkedIn live search,
+   and verified direct-employer Greenhouse, Ashby, Lever, Workday, and careers
+   pages. Partial verified refills are valid.
+4. Screen, tailor, validate, apply, and record each role serially. Use local
+   Codex, exact private facts, attempt budgets, employer-concentration rules, and
+   duplicate gates.
+5. Auto-submit any verified direct-employer application only when every required field and
+   consent is covered by enabled private policy. Send a concise completion email
+   after submission instead of requesting approval beforehand.
+6. For an uncovered required field, send one answer-scope email that can be
+   resolved with a short phone reply. For authentication/CAPTCHA or a changed
+   form, send one actionable browser handoff with the direct link and continue
+   the queue.
+7. Refresh and verify the tracker, mark the pipeline cursor only after the cycle
+   completes, and release the exact lock token on every exit path.
+
+## Adaptive Attempt Budget
+
+Before a failure-prone stage, consult the local learner and start a timed
+attempt:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\workflow_optimizer.py advise --stage ats_fill --platform greenhouse
+.\.venv\Scripts\python.exe scripts\workflow_optimizer.py start --stage ats_fill --platform greenhouse
+```
+
+Keep the returned attempt ID and finish it after the stage. Include the actual
+outcome and interaction count. When application state changes at the same time,
+pass the attempt ID or barrier fields to `scripts/application_state.py` so the
+queue, tracker, and effort record stay aligned.
+
+The full budgets and barrier actions are in `docs/process_optimization.md`.
+Elapsed time and interaction count are the standard proxies for token cost.
+Do not exceed a stage budget to keep diagnosing one posting. If the learner
+returns `use_codex`, `open_direct_ats`, `manual_handoff`, `move_on`, or
+`skip_candidate`, follow that action without re-proving the failure.
 
 ## Fast Path
 
@@ -82,6 +242,8 @@ Use this as the default path for public ATS applications.
 6. Before submit, take one validation snapshot and fix only the remaining required fields.
 7. Update queue and tracker together with `scripts/application_state.py` instead of editing both files separately.
 8. For external roles, move to the employer ATS URL as soon as it is known and prefer tracking that final URL.
+9. If the fast path stops before submit for any reason, give the user the exact
+   application URL plus the local resume path and blocker before moving on.
 
 ## What Worked Well
 
@@ -99,6 +261,8 @@ Use this as the default path for public ATS applications.
 ## Inefficient Steps To Avoid
 
 - Do not burn tokens proving the Codex browser plugins are still broken once the failure mode is known. For public ATS flows, switch directly to Playwright CLI.
+- Do not diagnose a barrier that already has an active learned rule. Record the
+  outcome, apply the recommended switch/handoff/skip action, and continue.
 - Do not spend tokens reopening wrapper pages once the direct employer ATS URL is known.
 - Do not start with a full-page exploratory dump when a targeted `snapshot` after each state change is enough.
 - Do not update `jobs/queue.csv` and `tracker/applications.csv` separately for the same state change. Use `scripts/application_state.py`.
@@ -184,21 +348,39 @@ Goldman-specific lesson: Oracle prefilled an old resume and later accepted the w
 
 Use this order to reduce wasted tokens and avoid blocked paths:
 
-1. Hard-screen before resume work:
+1. Check `scripts/workflow_optimizer.py advise` before entering a previously
+   unreliable stage or platform. Follow any active learned action.
+2. Hard-screen before resume work:
+   - save the live job description and record `screening.json` with
+     `scripts/queue_screened_job.py` before adding a new queue row
    - direct employer, not staffing
-   - NYC or Jersey City
-   - posted within 24 hours when available
-   - hybrid or in-office
+   - NYC, Jersey City, or remote U.S. where locally allowed
+   - posted within seven days when available; prioritize the newest 72 hours
+   - hybrid, in-office, or remote according to local criteria
    - no explicit "no sponsorship" language
-2. Resolve the direct employer ATS URL immediately.
-3. If the employer is FAANG-level or comparable big tech, prepare the verified
-   one-page resume, mark `manual_apply_needed`, give the user the job link and
-   resume path, and stop before form filling.
+   - sponsorship silence is an eligible, non-blocking state; do not pause the
+     workflow unless the live posting explicitly rejects sponsorship or the
+     application asks wording not covered by the private facts
+   - technical work and salary expectations match the private criteria, even if
+     the title is adjacent rather than a literal data-engineering title
+   - for cyber/GRC/risk/compliance roles, confirm the core deliverable is a
+     data or analytics engineering product: SQL/Python pipelines, data models,
+     data quality controls, governed BI/reporting layers, KPI/KRI metric logic,
+     warehouse delivery, or automated analytics/reporting
+   - reject roles where the core work is compliance program operations, audit
+     readiness, evidence collection, policy/procedure ownership, access-review
+     administration, control attestations, POA&M tracking, framework mapping,
+     or auditor coordination, even if salary/location/domain look attractive
+3. Resolve the direct employer ATS URL immediately.
 4. Reuse the existing application packet if the tailored resume already exists and has passed the one-page check.
-5. Use Playwright CLI for the live form.
+5. Start a timed ATS attempt, then use Playwright CLI for the live form.
 6. Fill required fields first and skip optional fields unless they add material value.
 7. Stop only for required questions not covered by `profile/facts.md` or `profile/application_answers.json`.
-8. Record the state once through `scripts/application_state.py`.
+   Any stop must include the direct application URL so the user can continue
+   through a short remote answer or, when unavoidable, manually.
+8. Finish the timed attempt and record state once through
+   `scripts/application_state.py`. If the budget is exhausted, hand off and
+   continue the queue.
 
 ## Optimization Backlog
 

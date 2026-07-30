@@ -7,6 +7,11 @@ import argparse
 import csv
 from pathlib import Path
 
+try:
+    from job_store import DEFAULT_DB, DEFAULT_QUEUE, database_enabled, export_legacy_csv, queue_rows, upsert_job
+except ImportError:  # pragma: no cover - package invocation in tests
+    from scripts.job_store import DEFAULT_DB, DEFAULT_QUEUE, database_enabled, export_legacy_csv, queue_rows, upsert_job
+
 
 QUEUE_FIELDS = [
     "company",
@@ -22,12 +27,16 @@ QUEUE_FIELDS = [
 
 TERMINAL_BATCH_STATUSES = {
     "submitted",
+    "resume_ready",
     "blocked_needs_user_input",
+    "pending_remote_approval",
     "manual_apply_needed",
     "needs_manual_review",
     "skipped",
     "expired",
+    "outdated",
     "rejected",
+    "rejected_role_core",
     "rejected_low_match",
     "closed",
     "analysis_failed",
@@ -50,6 +59,11 @@ def write_rows(path: Path, rows: list[dict[str, str]]) -> None:
         writer.writeheader()
         for row in rows:
             writer.writerow({field: row.get(field, "") for field in QUEUE_FIELDS})
+    if path.resolve() == DEFAULT_QUEUE.resolve() and database_enabled():
+        # Older writers still synchronize completed CSV changes into SQLite.
+        from job_store import sync_queue_csv
+
+        sync_queue_csv(path)
 
 
 def latest_batch_id(rows: list[dict[str, str]]) -> str:
@@ -102,6 +116,7 @@ def batch_progress(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Manage jobs/queue.csv.")
     parser.add_argument("--queue", type=Path, default=Path("jobs/queue.csv"))
+    parser.add_argument("--db", type=Path, default=DEFAULT_DB)
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     add = subparsers.add_parser("add", help="Add a job to the queue.")
@@ -141,7 +156,8 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    rows = read_rows(args.queue)
+    use_database = database_enabled(args.db)
+    rows = queue_rows(args.db) if use_database else read_rows(args.queue)
 
     if args.command == "add":
         if args.match_score is not None and not 0 <= args.match_score <= 100:
@@ -161,7 +177,24 @@ def main() -> int:
                 "notes": args.notes,
             }
         )
-        write_rows(args.queue, rows)
+        if use_database:
+            upsert_job(
+                {
+                    "company": args.company,
+                    "role": args.role,
+                    "source": args.source,
+                    "url": args.url,
+                    "status": "queued",
+                    "priority": args.priority,
+                    "batch_id": args.batch_id,
+                    "match_score": args.match_score,
+                    "notes": args.notes,
+                },
+                path=args.db,
+            )
+            export_legacy_csv(queue_path=args.queue, path=args.db)
+        else:
+            write_rows(args.queue, rows)
         print(f"Added queued job: {args.company} - {args.role}")
         return 0
 
@@ -214,7 +247,10 @@ def main() -> int:
         return 0
 
     if args.command == "normalize":
-        write_rows(args.queue, rows)
+        if use_database:
+            export_legacy_csv(queue_path=args.queue, path=args.db)
+        else:
+            write_rows(args.queue, rows)
         print(f"Normalized queue schema: {args.queue}")
         return 0
 
@@ -224,7 +260,11 @@ def main() -> int:
                 row["status"] = args.status
                 if args.notes is not None:
                     row["notes"] = args.notes
-                write_rows(args.queue, rows)
+                if use_database:
+                    upsert_job(row, path=args.db)
+                    export_legacy_csv(queue_path=args.queue, path=args.db)
+                else:
+                    write_rows(args.queue, rows)
                 print(f"Updated queue status: {args.status}")
                 return 0
         raise SystemExit(f"Queue URL not found: {args.url}")

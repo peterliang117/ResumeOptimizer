@@ -1,7 +1,7 @@
 {
   "standard_fields": {
-    "first_name": "Zicong",
-    "last_name": "Liang",
+    "first_name": "Your",
+    "last_name": "Name",
     "email": "your.email@example.com",
     "phone": "+1 000-000-0000",
     "city": "New York",
@@ -42,6 +42,13 @@
     "allow_prefill_exact_work_authorization": true,
     "allow_draft_custom_essays": true,
     "allow_click_legal_attestations": false,
+    "allow_standard_data_transmission": false,
+    "standard_data_transmission_rule": "Enable locally only when exact private facts may be transmitted to verified direct employers without per-job approval.",
+    "remote_approval_only_for_exceptions": false,
+    "allow_remote_answer_replies": false,
+    "remote_answer_reply_rule": "Enable locally to answer exceptional required fields through scoped, expiring email reply tokens.",
+    "big_tech_manual_submission": false,
+    "big_tech_manual_submission_rule": "Large technology employers use the same configured transmission and submit policy as other verified direct employers.",
     "allow_final_submit": false
   }
 }

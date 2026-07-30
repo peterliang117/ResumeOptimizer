@@ -12,6 +12,7 @@ import re
 from job_queue import read_rows, write_rows
 from match_score import score_job, split_keywords
 from run_application_pipeline import build_paths, read_json, write_json
+from screen_job import evaluate_job
 from search_criteria import require_target_pay
 from tailor import load_job_text, load_resume_paragraphs
 from tracker import upsert_tracker
@@ -70,9 +71,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model")
     parser.add_argument(
         "--llm-provider",
-        choices=["auto", "azure", "none"],
-        default=None,
-        help="Suggestion backend passed through to the application packet pipeline.",
+        choices=["codex", "auto", "azure", "local", "none"],
+        default="codex",
+        help="Suggestion backend passed through to the application packet pipeline. Defaults to local Codex review without an API call.",
     )
     return parser.parse_args()
 
@@ -108,18 +109,15 @@ def main() -> int:
         role = row.get("role", "Data Engineer")
         print(f"Scoring: {company} - {role}")
         try:
-            job_text, score = score_queue_row(
-                row=row,
-                resume=args.resume,
-                profile=args.profile,
-                keywords=split_keywords(args.keywords),
-                target_pay=target_pay,
-                pay_tolerance=args.pay_tolerance,
-                max_age_days=args.max_age_days,
+            source = row["url"]
+            job_text = (
+                load_job_text(job_url=source)
+                if re.match(r"^https?://", source)
+                else load_job_text(job=source)
             )
         except SystemExit as exc:
             row["status"] = "needs_manual_review"
-            row["notes"] = f"Could not fetch or score automatically: {exc}"
+            row["notes"] = f"Could not fetch job description for role-core screening: {exc}"
             continue
 
         paths = build_paths(company, role)
@@ -128,10 +126,46 @@ def main() -> int:
         packet_dir.mkdir(parents=True, exist_ok=True)
         job_description = paths["job_description"]
         fit_analysis = paths["fit_analysis"]
+        screening_path = paths["screening"]
         assert isinstance(job_description, Path)
         assert isinstance(fit_analysis, Path)
+        assert isinstance(screening_path, Path)
         job_description.write_text(job_text, encoding="utf-8")
-        write_json(fit_analysis, {"match_score": score})
+        screening = evaluate_job(job_text, role=role)
+        write_json(screening_path, screening)
+        write_json(fit_analysis, {"role_core_screen": screening})
+
+        if not screening["eligible"]:
+            row["status"] = "rejected_role_core"
+            row["notes"] = f"Role-core screen failed: {screening['decision_reason']}"
+            upsert_tracker(
+                args.tracker,
+                {
+                    "company": company,
+                    "role": role,
+                    "source": row.get("source", "LinkedIn"),
+                    "url": row.get("url", ""),
+                    "status": "rejected",
+                    "application_folder": str(packet_dir),
+                    "notes": row["notes"],
+                },
+            )
+            print(f"Skipped role-core mismatch: {screening['decision_reason']}")
+            continue
+
+        resume_text = "\n".join(
+            paragraph.text for paragraph in load_resume_paragraphs(args.resume)
+        )
+        profile_text = args.profile.read_text(encoding="utf-8") if args.profile.exists() else ""
+        score = score_job(
+            job_text=job_text,
+            resume_text=resume_text,
+            profile_text=profile_text,
+            keywords=split_keywords(args.keywords),
+            target_pay=target_pay,
+            pay_tolerance=args.pay_tolerance,
+            max_age_days=args.max_age_days,
+        )
 
         if score["score"] < args.min_score:
             row["status"] = "rejected_low_match"
@@ -181,10 +215,17 @@ def main() -> int:
 
         pipeline_fit = read_json(fit_analysis)
         pipeline_fit["match_score"] = score
+        pipeline_fit["role_core_screen"] = screening
         write_json(fit_analysis, pipeline_fit)
 
-        row["status"] = "analyzed"
-        row["notes"] = f"Match score {score['score']} met threshold {args.min_score}. Review proposed edits."
+        resume_path = paths["resume"]
+        assert isinstance(resume_path, Path)
+        if resume_path.exists():
+            row["status"] = "resume_ready"
+            row["notes"] = f"Match score {score['score']} met threshold {args.min_score}. Tailored resume generated."
+        else:
+            row["status"] = "analyzed"
+            row["notes"] = f"Match score {score['score']} met threshold {args.min_score}. Review proposed edits."
         processed += 1
 
     write_rows(args.queue, rows)

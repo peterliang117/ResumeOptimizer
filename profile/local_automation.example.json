@@ -1,0 +1,17 @@
+{
+  "interval_minutes": 30,
+  "outlook_interval_minutes": 240,
+  "discovery_interval_minutes": 120,
+  "pipeline_interval_minutes": 30,
+  "queue_capacity": 10,
+  "low_watermark": 3,
+  "enable_ats_discovery_report": false,
+  "prepare_packets": false,
+  "packet_limit": 3,
+  "min_score": 75,
+  "llm_provider": "codex",
+  "mailbox_events_path": "tmp/mailbox_events.json",
+  "max_safe_retries": 2,
+  "retry_delay_seconds": 15,
+  "stale_lock_minutes": 480
+}

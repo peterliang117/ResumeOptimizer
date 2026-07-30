@@ -12,6 +12,7 @@ from typing import Any
 
 from search_criteria import require_target_pay
 from tailor import load_job_text, load_resume_paragraphs
+from ai_resume_strategy import phrase_present
 
 
 DEFAULT_REQUIRED_KEYWORDS = [
@@ -134,13 +135,13 @@ def keyword_score(
 ) -> tuple[int, list[str], list[str], list[str]]:
     job = normalize(job_text)
     evidence = normalize(evidence_text)
-    relevant = [keyword for keyword in keywords if keyword in job]
+    relevant = [keyword for keyword in keywords if phrase_present(job, keyword)]
     if not relevant:
         return 0, [], keywords, []
     matched = [
         keyword
         for keyword in relevant
-        if keyword in evidence
+        if phrase_present(evidence, keyword)
         and (
             keyword not in TRANSFERABLE_TOOL_WORKFLOWS
             or has_confirmed_tool_evidence(evidence_text, keyword)
@@ -151,7 +152,7 @@ def keyword_score(
         for keyword in relevant
         if keyword not in matched
         and keyword in TRANSFERABLE_TOOL_WORKFLOWS
-        and any(workflow in evidence for workflow in TRANSFERABLE_TOOL_WORKFLOWS[keyword])
+        and any(phrase_present(evidence, workflow) for workflow in TRANSFERABLE_TOOL_WORKFLOWS[keyword])
     ]
     missing = [keyword for keyword in relevant if keyword not in matched and keyword not in transferable]
     weighted_matches = len(matched) + (0.65 * len(transferable))

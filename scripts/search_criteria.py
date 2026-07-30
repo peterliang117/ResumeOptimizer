@@ -14,7 +14,15 @@ class SearchCriteria:
     keyword_terms: list[str] = field(default_factory=list)
     locations: list[str] = field(default_factory=list)
     date_posted: str | None = None
+    preferred_freshness_hours: int = 72
+    maximum_freshness_hours: int = 168
     target_pay: int | None = None
+    secondary_pay_floor: int | None = None
+    secondary_pay_min_score: int = 82
+    max_active_per_employer: int = 1
+    daily_submission_target: int | None = None
+    weekly_submission_min: int | None = None
+    weekly_submission_max: int | None = None
     work_mode: str | None = None
 
 
@@ -29,14 +37,28 @@ def _parse_money(value: str) -> int | None:
     return int(match.group(1).replace(",", ""))
 
 
+def _parse_integer(value: str) -> int | None:
+    match = re.search(r"\b([0-9]+)\b", value)
+    return int(match.group(1)) if match else None
+
+
+def _parse_range(value: str) -> tuple[int | None, int | None]:
+    values = [int(item) for item in re.findall(r"\b([0-9]+)\b", value)]
+    if not values:
+        return None, None
+    if len(values) == 1:
+        return values[0], values[0]
+    return values[0], values[1]
+
+
 def _normalize_date_posted(value: str | None) -> str | None:
     if not value:
         return None
     normalized = value.lower()
+    if "week" in normalized or re.search(r"\b[2-7]\s+days?\b", normalized):
+        return "week"
     if "24" in normalized or "day" in normalized or "today" in normalized:
         return "day"
-    if "week" in normalized:
-        return "week"
     if "month" in normalized:
         return "month"
     return None
@@ -85,8 +107,32 @@ def read_search_criteria(path: Path = Path("profile/search_criteria.md")) -> Sea
             criteria.source = _clean_value(stripped.split(":", 1)[1])
         elif stripped.startswith("- Date posted:"):
             criteria.date_posted = _normalize_date_posted(stripped.split(":", 1)[1])
+        elif stripped.startswith("- Preferred freshness:"):
+            parsed = _parse_integer(stripped.split(":", 1)[1])
+            if parsed is not None:
+                criteria.preferred_freshness_hours = parsed
+        elif stripped.startswith("- Maximum freshness:"):
+            parsed = _parse_integer(stripped.split(":", 1)[1])
+            if parsed is not None:
+                criteria.maximum_freshness_hours = parsed * 24 if "day" in stripped.lower() else parsed
         elif stripped.startswith("- Target pay:"):
             criteria.target_pay = _parse_money(stripped.split(":", 1)[1])
+        elif stripped.startswith("- Secondary pay floor:"):
+            criteria.secondary_pay_floor = _parse_money(stripped.split(":", 1)[1])
+        elif stripped.startswith("- Secondary pay minimum score:"):
+            parsed = _parse_integer(stripped.split(":", 1)[1])
+            if parsed is not None:
+                criteria.secondary_pay_min_score = parsed
+        elif stripped.startswith("- Maximum active applications per employer:"):
+            parsed = _parse_integer(stripped.split(":", 1)[1])
+            if parsed is not None:
+                criteria.max_active_per_employer = parsed
+        elif stripped.startswith("- Daily submission target:"):
+            criteria.daily_submission_target = _parse_integer(stripped.split(":", 1)[1])
+        elif stripped.startswith("- Weekly submission target:"):
+            low, high = _parse_range(stripped.split(":", 1)[1])
+            criteria.weekly_submission_min = low
+            criteria.weekly_submission_max = high
         elif stripped.startswith("- Work mode:"):
             criteria.work_mode = _clean_value(stripped.split(":", 1)[1])
 

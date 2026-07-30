@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "note": "Copy to resume_variants.private.json locally. Point each variant to a truthful, evidence-backed resume file.",
+  "variants": {
+    "data_engineering": {
+      "resume_path": "resumes/master_resume.docx",
+      "focus": "SQL, Python, data quality, data pipelines, and financial-data delivery"
+    },
+    "analytics_engineering": {
+      "resume_path": "resumes/master_resume.docx",
+      "focus": "Data modeling, transformation workflows, analytics enablement, and data quality"
+    },
+    "data_platform": {
+      "resume_path": "resumes/master_resume.docx",
+      "focus": "Reliable data products, controls, performance, and platform-facing data work"
+    },
+    "cybersecurity_data": {
+      "resume_path": "resumes/master_resume.docx",
+      "focus": "Data governance, controls, data quality, and security-adjacent data workflows"
+    }
+  }
+}

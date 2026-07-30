@@ -6,8 +6,11 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import shutil
+import sqlite3
 import sys
 from pathlib import Path
+
+from local_llm import LocalLLMError, has_local_llm_config, list_local_models, local_llm_base_url, route_summary
 
 
 REQUIRED_PRIVATE_FILES = [
@@ -33,6 +36,7 @@ REQUIRED_DIRS = [
     Path("tailored_resumes"),
     Path("tracker"),
 ]
+SQLITE_STORE = Path("data/resume_optimizer.db")
 
 PYTHON_MODULES = ["bs4", "docx", "fitz", "requests"]
 
@@ -50,12 +54,28 @@ def check_libreoffice() -> bool:
     return any(candidate and Path(candidate).exists() for candidate in candidates)
 
 
+def check_sqlite_store() -> str | None:
+    if not SQLITE_STORE.exists():
+        return "SQLite store is not initialized; run scripts/migrate_to_sqlite.py --import-csv."
+    try:
+        with sqlite3.connect(SQLITE_STORE) as conn:
+            result = conn.execute("PRAGMA integrity_check").fetchone()[0]
+    except sqlite3.Error as exc:
+        return f"SQLite store could not be opened: {exc}"
+    return None if result == "ok" else f"SQLite integrity check failed: {result}"
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Check local job-pipeline setup.")
     parser.add_argument(
         "--public-only",
         action="store_true",
         help="Only validate files that should exist in a clean public checkout.",
+    )
+    parser.add_argument(
+        "--check-local-llm",
+        action="store_true",
+        help="Also call the local OpenAI-compatible LLM /models endpoint.",
     )
     return parser.parse_args()
 
@@ -87,7 +107,27 @@ def main() -> int:
     if not check_libreoffice():
         warnings.append("LibreOffice/soffice not found; one-page DOCX verification may fail.")
 
+    sqlite_issue = check_sqlite_store()
+    if sqlite_issue:
+        warnings.append(sqlite_issue)
+
+    local_llm_models: list[str] | None = None
+    if args.check_local_llm:
+        try:
+            local_llm_models = list_local_models()
+        except LocalLLMError as exc:
+            warnings.append(f"Local LLM server check failed: {exc}")
+
     print(f"Python: {sys.version.split()[0]}")
+    print(f"Local LLM base URL: {local_llm_base_url()}")
+    print(f"Local LLM configured: {has_local_llm_config()}")
+    print("Local LLM routes:")
+    for route_name, route in route_summary().items():
+        print(f"- {route_name}: {route['model']} ({route['mode_prefix']}, temp={route['temperature']})")
+    if local_llm_models is not None:
+        print("Local LLM server models:")
+        for model in local_llm_models:
+            print(f"- {model}")
     if errors:
         print("Errors:")
         for error in errors:

@@ -10,10 +10,16 @@ from collections import Counter
 from datetime import date, datetime
 from pathlib import Path
 
+try:
+    from job_store import DEFAULT_TRACKER, database_enabled, outcome_metrics, tracker_rows as sqlite_tracker_rows
+except ImportError:  # pragma: no cover - package invocation in tests
+    from scripts.job_store import DEFAULT_TRACKER, database_enabled, outcome_metrics, tracker_rows as sqlite_tracker_rows
 from tracker import TRACKER_FIELDS
 
 
-TERMINAL_STATUSES = {"rejected", "rejected_low_match", "closed", "withdrawn", "expired", "skipped"}
+ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_OPTIMIZATION_REPORT = ROOT / "outputs" / "workflow_optimization_report.json"
+TERMINAL_STATUSES = {"rejected", "rejected_low_match", "closed", "withdrawn", "expired", "outdated", "skipped"}
 ACTIVE_STATUSES = {
     "queued",
     "analyzed",
@@ -27,14 +33,24 @@ ACTIVE_STATUSES = {
     "interview",
     "offer",
 }
+INTERVIEW_STAGES = {
+    "recruiter_screen_scheduled",
+    "recruiter_screen_completed",
+    "interview_scheduled",
+    "interview_completed",
+    "next_round",
+    "offer_received",
+}
 
 
 def read_tracker(path: Path) -> list[dict[str, str]]:
+    if path.resolve() == DEFAULT_TRACKER.resolve() and database_enabled():
+        return sqlite_tracker_rows()
     if not path.exists():
         raise FileNotFoundError(f"Tracker not found: {path}")
     with path.open("r", encoding="utf-8-sig", newline="") as handle:
         reader = csv.DictReader(handle)
-        return [{field: row.get(field, "") for field in TRACKER_FIELDS} for row in reader]
+        return [{field: row.get(field) or "" for field in TRACKER_FIELDS} for row in reader]
 
 
 def cell(value: str) -> str:
@@ -73,6 +89,10 @@ def due_state(value: str, today: date) -> str:
     if due == today:
         return "today"
     return "upcoming"
+
+
+def is_interview_pipeline(row: dict[str, str]) -> bool:
+    return row["status"] in {"interview", "offer"} or row["stage"] in INTERVIEW_STAGES
 
 
 def application_card(row: dict[str, str], today: date) -> str:
@@ -115,9 +135,10 @@ def application_card(row: dict[str, str], today: date) -> str:
 
 def follow_up_item(row: dict[str, str], today: date) -> str:
     state = due_state(row["follow_up_date"], today)
+    display_date = row["follow_up_date"] or row["stage_date"] or "Active"
     return f"""
       <article class="follow-up-item follow-up-{state}">
-        <div class="follow-up-date">{cell(row['follow_up_date'])}</div>
+        <div class="follow-up-date">{cell(display_date)}</div>
         <div class="follow-up-main">
           <strong>{cell(row['company'])}</strong>
           <span>{cell(row['role'])}</span>
@@ -132,17 +153,63 @@ def follow_up_item(row: dict[str, str], today: date) -> str:
     """
 
 
+def read_optimization_report(path: Path = DEFAULT_OPTIMIZATION_REPORT) -> dict:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def optimization_item(item: dict) -> str:
+    action = str(item.get("action") or "review").replace("_", " ")
+    barrier = str(item.get("barrier") or "unknown").replace("_", " ")
+    stage = str(item.get("stage") or "workflow").replace("_", " ")
+    platform = str(item.get("platform") or "unknown").replace("_", " ")
+    reason = str(item.get("reason") or "")
+    return f"""
+      <div class="optimizer-row">
+        <div><strong>{cell(action.title())}</strong><span>{cell(stage)} / {cell(platform)}</span></div>
+        <div><span class="pill">{cell(barrier)}</span><p>{cell(reason)}</p></div>
+      </div>
+    """
+
+
 def render(rows: list[dict[str, str]], source_path: Path) -> str:
     today = date.today()
     status_counts = Counter(row["status"] for row in rows)
     active = [row for row in rows if row["status"] in ACTIVE_STATUSES and row["status"] not in TERMINAL_STATUSES]
-    interviews = [row for row in active if row["status"] in {"interview", "offer"} or row["stage"]]
+    interviews = [row for row in active if is_interview_pipeline(row)]
     follow_ups = sorted(
         [row for row in active if parse_date(row["follow_up_date"])],
         key=lambda row: row["follow_up_date"],
     )
+    follow_up_and_interview_rows = sorted(
+        [row for row in active if parse_date(row["follow_up_date"]) or is_interview_pipeline(row)],
+        key=lambda row: (
+            not is_interview_pipeline(row),
+            row["follow_up_date"] or row["stage_date"] or "9999-12-31",
+            row["company"].casefold(),
+        ),
+    )
     overdue = [row for row in follow_ups if parse_date(row["follow_up_date"]) < today]
     mailbox_updates = [row for row in rows if row["email_status"]]
+    optimization = read_optimization_report()
+    optimization_rules = optimization.get("recommendations", [])
+    if not isinstance(optimization_rules, list):
+        optimization_rules = []
+    optimizer_rows = "".join(
+        optimization_item(item) for item in optimization_rules[:6] if isinstance(item, dict)
+    )
+    if not optimizer_rows:
+        optimizer_rows = '<p class="empty-state">No active learned barriers.</p>'
+    interview_rate = "-"
+    if source_path.resolve() == DEFAULT_TRACKER.resolve() and database_enabled():
+        metrics = outcome_metrics()
+        if metrics["applications"]:
+            interview_rate = f"{metrics['baseline_interview_rate']:.0%}"
 
     prioritized_active = sorted(
         active,
@@ -158,9 +225,9 @@ def render(rows: list[dict[str, str]], source_path: Path) -> str:
     if not active_cards:
         active_cards = '<p class="empty-state">No active applications.</p>'
 
-    follow_up_items = "".join(follow_up_item(row, today) for row in follow_ups)
+    follow_up_items = "".join(follow_up_item(row, today) for row in follow_up_and_interview_rows)
     if not follow_up_items:
-        follow_up_items = '<p class="empty-state">No follow-ups scheduled.</p>'
+        follow_up_items = '<p class="empty-state">No follow-ups or interview stages recorded.</p>'
 
     table_rows = "\n".join(
         f"""
@@ -223,7 +290,7 @@ def render(rows: list[dict[str, str]], source_path: Path) -> str:
     .meta {{ color: var(--muted); font-size: 12px; margin: 0; }}
     .live-status {{ display: none; align-items: center; gap: 7px; color: var(--accent); }}
     .live-status::before {{ width: 8px; height: 8px; border-radius: 50%; background: var(--accent); content: ""; }}
-    .metrics {{ display: grid; grid-template-columns: repeat(5, minmax(140px, 1fr)); gap: 10px; margin: 18px 0; }}
+    .metrics {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin: 18px 0; }}
     .metric-card, section, .application-card {{ background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }}
     .metric-card {{ padding: 14px 16px; }}
     .metric-value {{ display: block; font-size: 27px; font-weight: 700; }}
@@ -244,8 +311,8 @@ def render(rows: list[dict[str, str]], source_path: Path) -> str:
     .pill {{ display: inline-block; border: 1px solid #cbd7d2; border-radius: 999px; background: #edf3f1; padding: 2px 8px; font-size: 11px; font-weight: 650; white-space: nowrap; }}
     .status-interview, .status-offer {{ background: var(--blue-soft); border-color: #afcde6; color: #0d568c; }}
     .status-submitted {{ background: var(--accent-soft); border-color: #a8dbc8; color: #086246; }}
-    .status-blocked-needs-user-input, .status-needs-manual-review {{ background: var(--amber-soft); border-color: #e9cf70; color: #765000; }}
-    .status-rejected, .status-rejected-low-match, .status-expired, .status-skipped, .status-closed {{ background: #eceeef; border-color: #d4d8da; color: #5d666c; }}
+    .status-blocked-needs-user-input, .status-pending-remote-approval, .status-needs-manual-review {{ background: var(--amber-soft); border-color: #e9cf70; color: #765000; }}
+    .status-rejected, .status-rejected-low-match, .status-expired, .status-outdated, .status-skipped, .status-closed {{ background: #eceeef; border-color: #d4d8da; color: #5d666c; }}
     .stage-pill {{ background: #f4f1ff; border-color: #d7ccef; color: #5a4686; }}
     .overdue {{ color: var(--red); font-weight: 700; }}
     .today {{ color: var(--amber); font-weight: 700; }}
@@ -256,6 +323,12 @@ def render(rows: list[dict[str, str]], source_path: Path) -> str:
     .follow-up-main span, .follow-up-meta {{ color: var(--muted); font-size: 12px; }}
     .follow-up-main p {{ margin: 5px 0 0; font-size: 12px; }}
     .follow-up-meta {{ grid-column: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }}
+    .optimizer-list {{ display: grid; }}
+    .optimizer-row {{ display: grid; grid-template-columns: minmax(190px, .7fr) minmax(0, 1.8fr); gap: 16px; padding: 11px 0; border-top: 1px solid var(--line); }}
+    .optimizer-row:first-child {{ border-top: 0; padding-top: 0; }}
+    .optimizer-row > div {{ display: grid; align-content: start; gap: 4px; }}
+    .optimizer-row span, .optimizer-row p {{ color: var(--muted); font-size: 12px; margin: 0; }}
+    .optimizer-row .pill {{ color: var(--amber); justify-self: start; }}
     .toolbar {{ display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }}
     input, select, textarea, button {{ font: inherit; }}
     input, select, textarea {{ border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink); padding: 8px 10px; }}
@@ -284,6 +357,7 @@ def render(rows: list[dict[str, str]], source_path: Path) -> str:
     @media (max-width: 960px) {{
       .metrics {{ grid-template-columns: repeat(2, 1fr); }}
       .dashboard-grid {{ grid-template-columns: 1fr; }}
+      .optimizer-row {{ grid-template-columns: 1fr; gap: 7px; }}
       header {{ align-items: flex-start; flex-direction: column; }}
     }}
     @media (max-width: 560px) {{
@@ -299,7 +373,7 @@ def render(rows: list[dict[str, str]], source_path: Path) -> str:
   <header>
     <div>
       <h1>Application Tracker</h1>
-      <p class="meta">Updated {cell(generated)} · {cell(str(source_path))}</p>
+      <p class="meta">Updated {cell(generated)} | {cell(str(source_path))}</p>
     </div>
     <p class="meta live-status" id="live-status">Live</p>
   </header>
@@ -310,6 +384,8 @@ def render(rows: list[dict[str, str]], source_path: Path) -> str:
     <div class="metric-card"><span class="metric-value">{len(follow_ups)}</span><span class="metric-label">Scheduled follow-ups</span></div>
     <div class="metric-card"><span class="metric-value">{len(overdue)}</span><span class="metric-label">Overdue actions</span></div>
     <div class="metric-card"><span class="metric-value">{len(mailbox_updates)}</span><span class="metric-label">Mailbox-linked updates</span></div>
+    <div class="metric-card"><span class="metric-value">{interview_rate}</span><span class="metric-label">Outcome-calibrated interview rate</span></div>
+    <div class="metric-card"><span class="metric-value">{len(optimization_rules)}</span><span class="metric-label">Active learned workflow rules</span></div>
   </div>
 
   <div class="dashboard-grid">
@@ -322,6 +398,12 @@ def render(rows: list[dict[str, str]], source_path: Path) -> str:
       <div class="follow-up-list">{follow_up_items}</div>
     </section>
   </div>
+
+  <section>
+    <h2>Process Optimizer</h2>
+    <p class="meta">Repeated failures and budget overruns become temporary switch, handoff, or skip rules.</p>
+    <div class="optimizer-list">{optimizer_rows}</div>
+  </section>
 
   <section>
     <h2>All Applications</h2>
@@ -363,7 +445,7 @@ def render(rows: list[dict[str, str]], source_path: Path) -> str:
     <div class="form-grid">
       <label class="form-field"><span>Status</span>
         <select name="status">
-          <option>submitted</option><option>interview</option><option>offer</option>
+          <option>submitted</option><option>interview</option><option>offer</option><option>outdated</option>
           <option>rejected</option><option>closed</option><option>withdrawn</option>
         </select>
       </label>

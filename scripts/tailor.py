@@ -14,6 +14,16 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, quote, urlparse
 
+try:
+    from local_llm import LocalLLMError, chat_json_schema, has_local_llm_config
+except ImportError:  # pragma: no cover - used when imported as scripts.tailor
+    from scripts.local_llm import LocalLLMError, chat_json_schema, has_local_llm_config
+
+try:
+    from ai_resume_strategy import build_selection_report
+except ImportError:  # pragma: no cover - used when imported as scripts.tailor
+    from scripts.ai_resume_strategy import build_selection_report
+
 
 SUGGESTION_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -83,6 +93,22 @@ SUGGESTION_SCHEMA: dict[str, Any] = {
         "confirmation_questions",
     ],
 }
+
+SUGGESTION_RESPONSE_CONTRACT = """
+Return exactly one JSON object with these required top-level keys:
+- job_summary: string
+- must_have_skills: array of strings
+- nice_to_have_skills: array of strings
+- matched_evidence: array of objects with requirement, evidence, confidence
+- suggested_edits: array of objects with paragraph_id, original, suggested, reason, evidence_source, truth_risk
+- confirmation_questions: array of objects with requirement, question
+
+Use only confidence values: high, medium, low.
+Use only evidence_source values: resume, profile, resume_and_profile.
+Use only truth_risk values: low, medium, high.
+If no safe edit exists, return an empty suggested_edits array.
+Do not return extra top-level keys, prose, markdown, or an error object.
+""".strip()
 
 
 class LLMUnavailableError(RuntimeError):
@@ -229,6 +255,7 @@ def build_prompt(
     profile_facts: str,
 ) -> str:
     resume_json = [{"paragraph_id": p.paragraph_id, "text": p.text} for p in resume_paragraphs]
+    selection_report = build_selection_report(job_text, resume_paragraphs, profile_facts)
     return f"""
 You are helping tailor a one-page resume to a job description.
 
@@ -239,6 +266,11 @@ Hard rules:
 - Do not add unsupported tools, metrics, employers, dates, degrees, or responsibilities.
 - If a job requirement is not supported, ask a confirmation question instead of adding it.
 - Suggest edits to existing paragraphs only, using paragraph_id.
+- Optimize for machine parsing and criterion-based review: clear standard terminology,
+  explicit evidence, role relevance, and prominence in the top third of the resume.
+- Use an exact job term only when the evidence report marks it supported.
+- Do not keyword-stuff, repeat terms unnaturally, add invisible text, or write instructions
+  aimed at manipulating an evaluator.
 
 Resume paragraphs:
 {json.dumps(resume_json, indent=2)}
@@ -248,6 +280,12 @@ Profile facts allowed as evidence:
 
 Job description:
 {job_text}
+
+Deterministic selection report (advisory, evidence-bound):
+{json.dumps(selection_report, indent=2)}
+
+Required JSON response contract:
+{SUGGESTION_RESPONSE_CONTRACT}
 """.strip()
 
 
@@ -429,7 +467,29 @@ def analyze_with_azure_openai(prompt: str) -> dict[str, Any]:
         raise LLMUnavailableError("Azure OpenAI response did not include message content.") from exc
     if not isinstance(content, str) or not content.strip():
         raise LLMUnavailableError("Azure OpenAI response content was empty.")
-    return parse_json_text(content, source="Azure OpenAI")
+    return validate_suggestion_payload(parse_json_text(content, source="Azure OpenAI"), source="Azure OpenAI")
+
+
+def analyze_with_local_llm(prompt: str, model: str | None = None) -> dict[str, Any]:
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "Return only valid JSON matching the requested shape. Be conservative, "
+                "truth-preserving, and concise. Do not invent facts."
+            ),
+        },
+        {"role": "user", "content": prompt},
+    ]
+    suggestions = chat_json_schema(
+        "resume_tailoring",
+        messages,
+        SUGGESTION_SCHEMA,
+        model=model,
+        max_tokens=2200,
+        timeout=180,
+    )
+    return validate_suggestion_payload(suggestions, source="local LLM")
 
 
 def parse_json_text(text: str, *, source: str) -> dict[str, Any]:
@@ -443,6 +503,56 @@ def parse_json_text(text: str, *, source: str) -> dict[str, Any]:
         raise LLMUnavailableError(f"{source} response was not valid JSON: {exc}") from exc
     if not isinstance(payload, dict):
         raise LLMUnavailableError(f"{source} response JSON must be an object.")
+    return payload
+
+
+def validate_suggestion_payload(payload: dict[str, Any], *, source: str) -> dict[str, Any]:
+    required_keys = {
+        "job_summary",
+        "must_have_skills",
+        "nice_to_have_skills",
+        "matched_evidence",
+        "suggested_edits",
+        "confirmation_questions",
+    }
+    missing = sorted(required_keys - set(payload))
+    if missing:
+        raise LLMUnavailableError(f"{source} response missing required keys: {', '.join(missing)}")
+
+    extra = sorted(set(payload) - required_keys - {"_analysis_backend"})
+    if extra:
+        raise LLMUnavailableError(f"{source} response included unsupported keys: {', '.join(extra)}")
+
+    if not isinstance(payload["job_summary"], str):
+        raise LLMUnavailableError(f"{source} job_summary must be a string.")
+    for key in ["must_have_skills", "nice_to_have_skills", "matched_evidence", "suggested_edits", "confirmation_questions"]:
+        if not isinstance(payload[key], list):
+            raise LLMUnavailableError(f"{source} {key} must be an array.")
+
+    for item in payload["matched_evidence"]:
+        if not isinstance(item, dict):
+            raise LLMUnavailableError(f"{source} matched_evidence items must be objects.")
+        if not {"requirement", "evidence", "confidence"}.issubset(item):
+            raise LLMUnavailableError(f"{source} matched_evidence item is missing required fields.")
+        if item.get("confidence") not in {"high", "medium", "low"}:
+            raise LLMUnavailableError(f"{source} matched_evidence confidence is invalid.")
+
+    for item in payload["suggested_edits"]:
+        if not isinstance(item, dict):
+            raise LLMUnavailableError(f"{source} suggested_edits items must be objects.")
+        if not {"paragraph_id", "original", "suggested", "reason", "evidence_source", "truth_risk"}.issubset(item):
+            raise LLMUnavailableError(f"{source} suggested_edits item is missing required fields.")
+        if item.get("evidence_source") not in {"resume", "profile", "resume_and_profile"}:
+            raise LLMUnavailableError(f"{source} suggested_edits evidence_source is invalid.")
+        if item.get("truth_risk") not in {"low", "medium", "high"}:
+            raise LLMUnavailableError(f"{source} suggested_edits truth_risk is invalid.")
+
+    for item in payload["confirmation_questions"]:
+        if not isinstance(item, dict):
+            raise LLMUnavailableError(f"{source} confirmation_questions items must be objects.")
+        if not {"requirement", "question"}.issubset(item):
+            raise LLMUnavailableError(f"{source} confirmation_questions item is missing required fields.")
+
     return payload
 
 
@@ -465,66 +575,42 @@ def fallback_analysis(
     resume_paragraphs: list[ResumeParagraph],
     job_text: str,
     reason: str | None = None,
+    profile_facts: str = "",
 ) -> dict[str, Any]:
-    stopwords = {
-        "and",
-        "are",
-        "base",
-        "build",
-        "company",
-        "days",
-        "for",
-        "from",
-        "have",
-        "into",
-        "looking",
-        "needs",
-        "our",
-        "per",
-        "posted",
-        "range",
-        "requires",
-        "responsibilities",
-        "role",
-        "salary",
-        "senior",
-        "that",
-        "the",
-        "this",
-        "through",
-        "with",
-        "will",
-        "year",
-        "you",
-        "your",
-    }
-    tokens = sorted(
-        {
-            token.strip(".,:;()[]{}").lower()
-            for token in re.findall(r"[A-Za-z][A-Za-z+#.\-]{2,}", job_text)
-            if token.strip(".,:;()[]{}").lower() not in stopwords
-        }
-    )
-    resume_text = "\n".join(p.text for p in resume_paragraphs).lower()
-    matched = [token for token in tokens if token in resume_text][:30]
-    missing = [token for token in tokens if token not in resume_text][:20]
+    report = build_selection_report(job_text, resume_paragraphs, profile_facts)
+    criteria = report["criteria"]
+    matched = [item for item in criteria if item["status"] == "supported"]
+    missing = [
+        item for item in criteria
+        if item["status"] == "unsupported" and item["priority"] in {"must", "core"}
+    ]
     return {
         "job_summary": (
-            "Fallback keyword scan. Use Codex/manual review for rewrite suggestions."
+            "Deterministic criterion and evidence review. Use Codex for fact-bound rewrite suggestions."
             if not reason
-            else f"Fallback keyword scan. Use Codex/manual review for rewrite suggestions. Reason: {reason}"
+            else f"Deterministic criterion and evidence review. Reason: {reason}"
         ),
-        "must_have_skills": matched,
-        "nice_to_have_skills": [],
+        "must_have_skills": [
+            item["criterion"] for item in criteria if item["priority"] in {"must", "core"}
+        ],
+        "nice_to_have_skills": [item["criterion"] for item in criteria if item["priority"] == "nice"],
         "matched_evidence": [
-            {"requirement": token, "evidence": "Keyword appears in resume.", "confidence": "medium"}
-            for token in matched
+            {
+                "requirement": item["criterion"],
+                "evidence": item["evidence"] or "",
+                "confidence": item["confidence"],
+            }
+            for item in matched
         ],
         "suggested_edits": [],
         "confirmation_questions": [
-            {"requirement": token, "question": f"Can you truthfully claim experience with {token}?"}
-            for token in missing
+            {
+                "requirement": item["criterion"],
+                "question": f"Is there verified evidence for {item['criterion']} that is absent from the private facts?",
+            }
+            for item in missing
         ],
+        "_selection_strategy": report,
     }
 
 
@@ -534,21 +620,46 @@ def analyze_resume_tailoring(
     profile_facts: str,
     *,
     provider: str,
-    model: str,
+    model: str | None,
 ) -> dict[str, Any]:
     prompt = build_prompt(resume_paragraphs, job_text, profile_facts)
+    if provider == "codex":
+        return fallback_analysis(
+            resume_paragraphs,
+            job_text,
+            "Codex/local review is the default. No external LLM request was made.",
+            profile_facts,
+        )
     if provider == "none":
-        return fallback_analysis(resume_paragraphs, job_text, "LLM provider disabled.")
+        return fallback_analysis(resume_paragraphs, job_text, "LLM provider disabled.", profile_facts)
 
+    azure_error: LLMUnavailableError | None = None
     if provider == "azure" or (provider == "auto" and has_azure_config()):
         try:
             suggestions = analyze_with_azure_openai(prompt)
             suggestions["_analysis_backend"] = "azure_openai"
             return suggestions
         except LLMUnavailableError as exc:
-            return fallback_analysis(resume_paragraphs, job_text, f"Azure OpenAI unavailable: {exc}")
+            azure_error = exc
+            if provider == "azure":
+                return fallback_analysis(resume_paragraphs, job_text, f"Azure OpenAI unavailable: {exc}", profile_facts)
 
-    return fallback_analysis(resume_paragraphs, job_text, "Azure OpenAI is not configured.")
+    if provider == "local" or (provider == "auto" and has_local_llm_config()):
+        try:
+            suggestions = analyze_with_local_llm(prompt, model=model)
+            suggestions["_analysis_backend"] = "local_llm"
+            return suggestions
+        except (LocalLLMError, LLMUnavailableError) as exc:
+            if azure_error:
+                reason = f"Azure OpenAI unavailable: {azure_error}; local LLM unavailable: {exc}"
+            else:
+                reason = f"Local LLM unavailable: {exc}"
+            return fallback_analysis(resume_paragraphs, job_text, reason, profile_facts)
+
+    if azure_error:
+        return fallback_analysis(resume_paragraphs, job_text, f"Azure OpenAI unavailable: {azure_error}", profile_facts)
+
+    return fallback_analysis(resume_paragraphs, job_text, "No configured LLM provider is available.", profile_facts)
 
 
 def validate_edit(edit: dict[str, Any], paragraph_by_id: dict[str, str]) -> str | None:
@@ -621,11 +732,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model", default=None)
     parser.add_argument(
         "--llm-provider",
-        choices=["auto", "azure", "none"],
-        default=os.getenv("RESUME_OPTIMIZER_LLM_PROVIDER", "auto"),
+        choices=["codex", "auto", "azure", "local", "none"],
+        default=os.getenv("RESUME_OPTIMIZER_LLM_PROVIDER", "codex"),
         help=(
-            "Suggestion backend. auto uses Azure OpenAI when AZURE_OPENAI_* is configured, "
-            "then falls back to local/Codex manual review."
+            "Suggestion backend. codex writes a local evidence packet without an external "
+            "LLM request; auto uses Azure OpenAI first when configured, then LOCAL_LLM_*."
         ),
     )
     return parser.parse_args()

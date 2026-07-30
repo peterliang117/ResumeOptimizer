@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ResumeOptimizer Stable Commands</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f8fa;
+      --panel: #ffffff;
+      --ink: #1f2933;
+      --muted: #5f6b7a;
+      --line: #d9dee7;
+      --accent: #0f766e;
+      --accent-soft: #e6f4f1;
+      --code: #17202a;
+      --code-bg: #eef2f6;
+      --warn: #8a5a00;
+      --warn-bg: #fff6db;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "Segoe UI", Arial, sans-serif;
+      line-height: 1.5;
+    }
+
+    header {
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+      padding: 28px 32px 22px;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+
+    header p {
+      max-width: 920px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    main {
+      display: grid;
+      grid-template-columns: minmax(260px, 360px) 1fr;
+      gap: 20px;
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    section,
+    aside {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 20px;
+    }
+
+    h2 {
+      margin: 0 0 14px;
+      font-size: 18px;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin: 22px 0 8px;
+      font-size: 15px;
+      letter-spacing: 0;
+    }
+
+    p {
+      margin: 0 0 12px;
+    }
+
+    ul,
+    ol {
+      margin: 0 0 14px 20px;
+      padding: 0;
+    }
+
+    li {
+      margin: 6px 0;
+    }
+
+    code {
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 13px;
+      background: var(--code-bg);
+      color: var(--code);
+      border-radius: 4px;
+      padding: 2px 5px;
+    }
+
+    pre {
+      margin: 8px 0 16px;
+      overflow-x: auto;
+      background: var(--code-bg);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+    }
+
+    pre code {
+      display: block;
+      padding: 0;
+      background: transparent;
+      white-space: pre;
+    }
+
+    .command {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      margin: 0 0 12px;
+    }
+
+    .command strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 14px;
+    }
+
+    .pill {
+      display: inline-block;
+      margin: 0 6px 8px 0;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .warning {
+      background: var(--warn-bg);
+      border: 1px solid #ecd58c;
+      border-radius: 8px;
+      color: var(--warn);
+      padding: 12px;
+      margin: 14px 0;
+    }
+
+    .flow {
+      display: grid;
+      gap: 10px;
+      margin: 12px 0 16px;
+    }
+
+    .flow div {
+      border-left: 4px solid var(--accent);
+      background: #f9fbfb;
+      padding: 10px 12px;
+      border-radius: 6px;
+    }
+
+    footer {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 0 24px 28px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    @media (max-width: 820px) {
+      main {
+        grid-template-columns: 1fr;
+        padding: 16px;
+      }
+
+      header {
+        padding: 22px 18px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>ResumeOptimizer Stable Commands</h1>
+    <p>
+      Local PowerShell commands for continuing the job-application workflow when
+      Codex is unavailable or usage is exhausted. These commands call the
+      existing repo scripts and keep the local Ollama/Qwen route active.
+    </p>
+  </header>
+
+  <main>
+    <aside>
+      <h2>Quick Start</h2>
+      <pre><code>Set-Location C:\path\to\ResumeOptimizer
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+.\scripts\jobctl.ps1 status</code></pre>
+
+      <h2>Command Menu</h2>
+      <div class="command">
+        <strong>Interactive Dashboard</strong>
+        <code>.\scripts\workflow_dashboard.ps1</code>
+        <p>Starts the local control UI at http://127.0.0.1:8770/.</p>
+      </div>
+      <div class="command">
+        <strong>Status</strong>
+        <code>.\scripts\jobctl.ps1 status</code>
+        <p>Shows batch status, next queued job, tracker counts, due follow-ups, and local LLM health.</p>
+      </div>
+      <div class="command">
+        <strong>Verify</strong>
+        <code>.\scripts\jobctl.ps1 verify</code>
+        <p>Runs doctor, tracker verification, and regenerates the tracker HTML report.</p>
+      </div>
+      <div class="command">
+        <strong>Run Current Batch</strong>
+        <code>.\scripts\jobctl.ps1 run-current-batch</code>
+        <p>Processes queued jobs using the local LLM route without discovering or refilling jobs.</p>
+      </div>
+      <div class="command">
+        <strong>Refill Next Batch</strong>
+        <code>.\scripts\jobctl.ps1 refill-next-batch</code>
+        <p>Generates a guarded refill review report after the current batch is exhausted.</p>
+      </div>
+      <div class="command">
+        <strong>Apply Reviewed Refill</strong>
+        <code>.\scripts\jobctl.ps1 refill-next-batch --apply-reviewed outputs\refill_candidates_YYYY-MM-DD-01.json</code>
+        <p>Adds 1 to 10 approved, hard-filtered, scored candidates to the queue under one batch ID.</p>
+      </div>
+      <div class="command">
+        <strong>Screen Refill Candidates</strong>
+        <code>.\scripts\jobctl.ps1 screen-refill-candidates outputs\refill_candidates_YYYY-MM-DD-01.json</code>
+        <p>Fetches job descriptions, scores candidates, and writes blocker/review flags back to the refill report.</p>
+      </div>
+      <div class="command">
+        <strong>Review Refill CSV</strong>
+        <code>.\scripts\jobctl.ps1 review-refill-report outputs\refill_candidates_YYYY-MM-DD-01.json --actionable-only</code>
+        <p>Exports the screened refill report to CSV so candidate, review, and fetch-failed rows can be inspected in a spreadsheet.</p>
+      </div>
+      <div class="command">
+        <strong>Prepare Next Packet</strong>
+        <code>.\scripts\jobctl.ps1 prepare-next-packet</code>
+        <p>Creates an application packet for the next queued job and stops at review.</p>
+      </div>
+      <div class="command">
+        <strong>Generate Handoff</strong>
+        <code>.\scripts\jobctl.ps1 generate-handoff --company "Example Co" --role "Senior Data Engineer"</code>
+        <p>Writes a browser or manual handoff JSON for one tracker row.</p>
+      </div>
+    </aside>
+
+    <section>
+      <h2>How The Pieces Fit</h2>
+      <div>
+        <span class="pill">Codex optional</span>
+        <span class="pill">PowerShell local</span>
+        <span class="pill">Ollama Qwen</span>
+        <span class="pill">Manual submit</span>
+      </div>
+
+      <div class="flow">
+        <div><strong>1. PowerShell entry:</strong> <code>jobctl.ps1</code> loads the local LLM environment and chooses the repo virtualenv Python.</div>
+        <div><strong>2. Stable facade:</strong> <code>jobctl.py</code> maps short commands to the existing workflow scripts.</div>
+        <div><strong>3. Workflow scripts:</strong> queue, tracker, application packet, resume tailoring, and verification stay inside the repo.</div>
+        <div><strong>4. Local LLM:</strong> Ollama serves <code>qwen3:8b</code> for screening and <code>qwen3:14b</code> for resume/application work.</div>
+        <div><strong>5. Human gate:</strong> final submit, legal attestations, privacy acknowledgements, and unsupported answers stay manual.</div>
+      </div>
+
+      <h2>When Codex Usage Runs Out</h2>
+      <ol>
+        <li>Open PowerShell on the machine that has the repo and Ollama.</li>
+        <li>Run the quick-start commands above.</li>
+        <li>Use <code>status</code> to decide whether there are queued jobs.</li>
+        <li>Use <code>run-current-batch</code> only when the current batch still has queued jobs.</li>
+        <li>Use <code>refill-next-batch</code> only when <code>status</code> shows <code>refill_ready=yes</code> and no queued jobs remain.</li>
+        <li>Use <code>screen-refill-candidates</code> to automate JD fetching, scoring, and blocker detection for the generated report.</li>
+        <li>Use <code>review-refill-report --actionable-only</code> to make a spreadsheet view of rows that still need attention.</li>
+        <li>Review the generated refill report and approve 1 to 10 candidates before using <code>--apply-reviewed</code>.</li>
+        <li>Use <code>verify</code> after state changes to regenerate <code>outputs\application_tracker_summary.html</code>.</li>
+      </ol>
+
+      <div class="warning">
+        Do not use these commands to bypass review. Model output is draft-only.
+        Final submit, legal confirmations, and sensitive answers still require
+        explicit human confirmation.
+      </div>
+
+      <h2>Safety Rules</h2>
+      <ul>
+        <li><code>run-current-batch</code> starts with <code>job_queue.py batch-status --target-size 10</code>.</li>
+        <li>It does not discover replacement jobs or refill an exhausted batch.</li>
+        <li><code>refill-next-batch</code> refuses to run unless the latest batch is exhausted and no queued jobs remain.</li>
+        <li><code>refill-next-batch</code> writes a review report first and does not modify the queue by default.</li>
+        <li><code>--apply-reviewed</code> accepts 1 to 10 candidates with <code>approved=true</code>, <code>hard_filters_passed=true</code>, and a valid <code>match_score</code>.</li>
+        <li><code>screen-refill-candidates</code> does not set <code>approved=true</code> or <code>hard_filters_passed=true</code>.</li>
+        <li><code>review-refill-report</code> exports CSV for review only; queue writes still use the JSON report.</li>
+        <li>Application answers come from <code>profile\application_answers.json</code>.</li>
+        <li>Profile truth comes from <code>profile\facts.md</code>.</li>
+        <li><code>generate-handoff</code> blocks final submit, legal attestations, unsupported claims, and inferred sensitive answers.</li>
+      </ul>
+
+      <h2>Generated HTML Reports</h2>
+      <p>
+        To regenerate the live tracker summary HTML directly, run:
+      </p>
+      <pre><code>.\.venv\Scripts\python.exe .\scripts\tracker_report.py</code></pre>
+      <p>
+        The output is written to <code>outputs\application_tracker_summary.html</code>.
+      </p>
+    </section>
+  </main>
+
+  <footer>
+    Local-only guide. Keep private profile, answer, queue, tracker, application,
+    and resume files out of Git.
+  </footer>
+</body>
+</html>

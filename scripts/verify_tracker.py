@@ -10,6 +10,11 @@ from urllib.parse import urlparse
 
 from tracker import TRACKER_FIELDS
 
+try:
+    from job_store import DEFAULT_DB, DEFAULT_TRACKER, database_enabled, tracker_rows as sqlite_tracker_rows
+except ImportError:  # pragma: no cover - package invocation in tests
+    from scripts.job_store import DEFAULT_DB, DEFAULT_TRACKER, database_enabled, tracker_rows as sqlite_tracker_rows
+
 
 CANONICAL_STATUSES = {
     "queued",
@@ -19,6 +24,8 @@ CANONICAL_STATUSES = {
     "applying_waiting_user_answers",
     "applying_waiting_resume_upload",
     "blocked_needs_user_input",
+    "pending_remote_approval",
+    "manual_apply_needed",
     "submitted",
     "interview",
     "offer",
@@ -29,6 +36,7 @@ CANONICAL_STATUSES = {
     "withdrawn",
     "closed",
     "expired",
+    "outdated",
     "skipped",
 }
 
@@ -50,6 +58,7 @@ def valid_url(value: str) -> bool:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Validate tracker/applications.csv.")
     parser.add_argument("--tracker", type=Path, default=Path("tracker/applications.csv"))
+    parser.add_argument("--db", type=Path, default=DEFAULT_DB)
     return parser.parse_args()
 
 
@@ -101,6 +110,19 @@ def main() -> int:
             warnings.append(f"Row {index}: resume file missing locally: {resume_file}")
         if application_folder and not Path(application_folder).exists():
             warnings.append(f"Row {index}: application folder missing locally: {application_folder}")
+
+    if args.tracker.resolve() == DEFAULT_TRACKER.resolve() and database_enabled(args.db):
+        database_rows = sqlite_tracker_rows(args.db)
+        csv_projection = sorted(
+            tuple((row.get(field) or "") for field in TRACKER_FIELDS) for row in rows
+        )
+        database_projection = sorted(
+            tuple((row.get(field) or "") for field in TRACKER_FIELDS) for row in database_rows
+        )
+        if csv_projection != database_projection:
+            errors.append(
+                "Tracker CSV export differs from SQLite source of truth; run scripts/migrate_to_sqlite.py --export-csv."
+            )
 
     if errors:
         print("Tracker errors:")

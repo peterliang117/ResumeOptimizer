@@ -43,8 +43,8 @@ export AZURE_OPENAI_API_VERSION="2025-04-01-preview"
 
 On Windows PowerShell, use `$env:NAME = "value"` instead of `export`.
 
-For this local workspace, the pipeline can also read the Azure endpoint and key
-from a private `keys.txt` file in `C:\Users\zicon\Repo\JobSearch` or from an
+The pipeline can also read the Azure endpoint and key from a private
+`keys.txt` file in the repository or one of its parent directories, or from an
 explicit `AZURE_OPENAI_KEYS_FILE` path. Keep that file ignored and local. The
 file can be either:
 
@@ -74,10 +74,25 @@ Check whether the workflow is Azure-ready without printing secrets:
 python scripts/azure_status.py
 ```
 
-`tailor.py` defaults to `--llm-provider auto`: it uses Azure OpenAI only when
-Azure endpoint, key, and deployment settings are available, and otherwise writes
-a conservative fallback scan for Codex/manual tailoring. The personal OpenAI API
-path is disabled for this local workflow.
+Optional local LLM analysis:
+
+```powershell
+winget install -e --id Ollama.Ollama
+ollama pull qwen3:8b
+ollama pull qwen3:14b
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+. .\scripts\use_local_llm.ps1
+python scripts\local_llm_status.py --check-server
+```
+
+See [docs/local_llm_setup.md](docs/local_llm_setup.md) for the full local LLM
+setup and task routing table.
+
+`tailor.py` defaults to `--llm-provider codex`: it makes no external LLM call
+and writes a local, fact-bound evidence packet for Codex review and tailoring.
+Azure, a configured local OpenAI-compatible endpoint, or Azure-first `auto`
+routing are opt-in with `--llm-provider azure`, `local`, or `auto`. The personal
+OpenAI API path is disabled for this local workflow.
 
 The scripts call the LLM API over HTTPS with `requests`, so they do not need an
 OpenAI Python SDK.
@@ -94,6 +109,7 @@ profile/search_criteria.md
 applications/
 outputs/
 tracker/applications.csv
+data/resume_optimizer.db
 .env
 ```
 
@@ -122,25 +138,58 @@ Recommended GitHub repository settings:
 
 ## Core Workflow
 
-The current process runs in repeating discovery batches of up to 10:
+The production workflow uses a local SQLite source of truth with CSV exports
+for compatibility. It is a rolling queue rather than a closed batch: stale,
+unstarted postings expire after the saved freshness window, and discovery
+refills when the active queue reaches its low-water mark.
 
 1. Read private search rules from `profile/search_criteria.md`.
-2. Check whether the current batch still contains open jobs.
-3. If the previous batch is exhausted, search LinkedIn, direct employer career
-   sites, and supported ATS platforms for current candidates.
-4. Hard-screen and rank candidates, then immediately queue every verified match
-   under one batch ID, stopping when the batch reaches 10. A partial batch is
-   valid.
-5. Process all queued jobs in score order through packet preparation, automatic
-   approval of low-risk fact-bound resume edits, application filling, and
-   tracking.
-6. Count blocked or manual-handoff applications as iterated and continue to the
-   next queued job.
-7. Reconcile Outlook job-update emails with active tracker rows. Record
-   application receipts, interview invitations, next-round notices, offers,
-   and rejections without saving email bodies.
-8. Start another discovery run only after every job in the current batch is
-   submitted, skipped, expired, rejected, blocked, or otherwise handed off.
+2. Expire stale unstarted jobs and check queue capacity.
+3. Search LinkedIn, direct employer career sites, and supported ATS platforms
+   for candidates with a live posting timestamp.
+4. Normalize each candidate, then apply deterministic gates for direct employer,
+   freshness, location/work mode, verified compensation, role core, explicit
+   no-sponsorship wording, and duplicates.
+5. Queue every verified match, preserving the base score, calibration adjustment,
+   evidence, and source metadata in SQLite.
+6. Process queued jobs in calibrated-score order through packet preparation,
+   evidence-backed resume selection, fact-gated application filling, and atomic
+   state tracking.
+7. Reconcile Outlook job updates as metadata-only events. Use known outcomes to
+   calibrate source and role-family scoring after enough observations exist.
+8. Record stage effort and barriers in local SQLite. Repeated failures or budget
+   overruns become temporary learned rules that switch, hand off, or skip the
+   known-bad path on later runs.
+
+Initialize the local store once after updating the code. Import does not modify
+the current CSV files:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\migrate_to_sqlite.py --import-csv
+.\.venv\Scripts\python.exe scripts\resume_evidence.py init
+.\.venv\Scripts\python.exe scripts\scheduled_reconcile.py configure --interval-minutes 240
+```
+
+The discovery coordinator can use bounded Codex subagents for public scouting,
+role-fit review, and packet auditing. They return advisory JSON only; the local
+coordinator remains the sole writer of private state and the only browser actor.
+See `docs/subagent_workflow.md`.
+
+The adaptive effort loop is documented in
+[`docs/process_optimization.md`](docs/process_optimization.md). Run
+`scripts\jobctl.ps1 optimize` to import recognizable historical barriers and
+refresh the local recommendations report.
+
+## Windows Local Automation
+
+Use `scripts/local_automation.py` as the Windows-local maintenance entrypoint.
+Its default wake interval is 30 minutes, with independent two-hour discovery
+and four-hour Outlook cursors. It coordinates SQLite maintenance, metadata-only
+Outlook events, CSV export, optional read-only discovery reporting, tracker
+validation, and dashboard refresh. It has no browser or submit action. See
+[`docs/local_automation.md`](docs/local_automation.md) for the ignored local
+configuration, dry-run, logging, concurrency lock, retry policy, and Task
+Scheduler install/status/uninstall commands.
 
 ## Resume Inputs
 
@@ -149,6 +198,20 @@ Put your master resume here:
 ```text
 resumes/master.docx
 ```
+
+Build the local single-column ATS-safe base resume after changing the master:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\build_ats_resume.py --update-manifest
+.\.venv\Scripts\python.exe scripts\check_one_page.py --docx resumes\master_ats.docx --outdir outputs\master_ats_check
+```
+
+The original master remains untouched. Future application packets use the
+ATS-safe role-family base selected by the private manifest. Each packet also
+contains `ai_selection_report.json`, which records parser risk, must-have/core/
+nice-to-have criteria, supported versus transferable evidence, weighted
+coverage, and placement priorities. This report optimizes observable ATS and
+AI-review behavior; it does not claim to reproduce a proprietary vendor score.
 
 Put job text in:
 
@@ -182,6 +245,19 @@ Some job boards block automated fetching or require login. If that happens, past
 
 ## Job Search Queue
 
+SQLite is the local source of truth at `data/resume_optimizer.db`; it is ignored
+by Git. `jobs/queue.csv` and `tracker/applications.csv` are generated compatibility
+exports for existing scripts and the dashboard. Run the rolling maintenance step
+before discovery:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\queue_maintenance.py --expire-stale --capacity 10 --low-watermark 3
+```
+
+Use `refill_recommended: true` or `available_slots` to decide how many verified
+candidates to find. Existing `batch-status` commands remain available for legacy
+batch runs.
+
 Keep jobs you want to evaluate in a local queue:
 
 ```bash
@@ -204,6 +280,25 @@ python scripts/job_queue.py batch-status --target-size 10
 ```
 
 The real queue lives at `jobs/queue.csv` and is ignored by Git. Use `jobs/queue.example.csv` as the portable template.
+
+For real candidates, use the role-core queue gate after saving the live job
+description locally. It writes a private screening record and refuses to queue
+staffing posts, explicit no-sponsorship posts, GRC/compliance-operations roles,
+and roles without clear data/analytics engineering work:
+
+```bash
+python scripts/queue_screened_job.py \
+  --company "Example Co" \
+  --role "Senior Data Engineer" \
+  --source "Greenhouse" \
+  --url "https://example.com/job" \
+  --job jobs/example_co_senior_data_engineer.txt \
+  --batch-id "2026-07-10-01"
+```
+
+The regular `automation_pipeline.py` repeats the same role-core gate before
+match scoring and tailoring, so legacy or manually-added queue rows cannot
+reach resume generation without a screening artifact.
 
 When one application state change should update both the queue and tracker, use:
 
@@ -304,6 +399,22 @@ Validate tracker structure and local file references:
 python scripts/verify_tracker.py
 ```
 
+Export the current normalized state back to compatibility CSVs after a repair or
+manual SQLite inspection:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\migrate_to_sqlite.py --export-csv
+.\.venv\Scripts\python.exe scripts\outcome_metrics.py
+```
+
+Archive stale, unsubmitted queue and tracker items before starting a new search
+cycle. Submitted applications and active interview or offer records are not
+changed by the default status set:
+
+```bash
+python scripts/archive_unsubmitted.py --apply
+```
+
 ## Application Pipeline
 
 Prepare an application packet from a job URL:
@@ -314,10 +425,16 @@ python scripts/run_application_pipeline.py \
   --role "Senior Data Engineer" \
   --job-url "https://example.com/job" \
   --resume resumes/master.docx \
-  --llm-provider auto
+  --llm-provider codex
 ```
 
-This creates the application folder, stores the job description, runs fit analysis, writes `proposed_edits.json`, updates the tracker to `analyzed`, and stops for chat review. If Azure OpenAI is unavailable, `proposed_edits.json` records the fallback reason and leaves actual rewrite tailoring for Codex/manual review.
+This creates the application folder, stores the job description, runs fit analysis, writes `proposed_edits.json`, updates the tracker to `analyzed`, and stops for Codex review. The default makes no Azure request; actual rewrite tailoring stays fact-bound in the local Codex session.
+
+To force local models after running `. .\scripts\use_local_llm.ps1`, pass:
+
+```bash
+--llm-provider local
+```
 
 After you approve edits, save them as an accepted-edits JSON file and run:
 
@@ -365,9 +482,16 @@ updates, filters, search, and inline local editing.
 The Codex Outlook Email connector is the mailbox access layer. The local repo
 does not store Microsoft credentials or mailbox tokens.
 
+The Windows maintenance task does not read Outlook by itself. A Codex task with
+the Outlook connector performs the mailbox read and passes only confirmed event
+metadata to the local bridge. The bridge is idempotent by Outlook message URL,
+updates the existing application row when company and role match, and skips a
+repeated event instead of duplicating history.
+
 For each run:
 
-1. Read active company and role names from `tracker/applications.csv`.
+1. Run `python scripts/scheduled_reconcile.py manifest` to read active company
+   and role names plus the last reconciliation state.
 2. Search or list recent Outlook messages using company names, recruiter
    domains, and job-status terms.
 3. Classify only clear outcomes: application received, interview invitation,
@@ -389,6 +513,23 @@ python scripts/mailbox_reconcile.py \
   --contact-name "Recruiter Name"
 ```
 
+For scheduled reconciliation, configure the local cadence once, then have the
+Codex Outlook connector pass only confirmed event metadata to the local bridge:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\scheduled_reconcile.py due
+.\.venv\Scripts\python.exe scripts\scheduled_reconcile.py manifest
+.\.venv\Scripts\python.exe scripts\scheduled_reconcile.py apply-events --events tmp\mailbox_events.json
+.\.venv\Scripts\python.exe scripts\scheduled_reconcile.py mark-checked
+```
+
+Use `mark-checked` only when the connector completed a mailbox scan and found no
+clear state changes. It records a successful check without inventing an event.
+
+`tmp/mailbox_events.json` may contain company, role, event type, received date,
+subject, Outlook URL, contact, follow-up date, and notes. It must not contain an
+email body. The bridge updates SQLite and refreshes both CSV exports atomically.
+
 Personal Microsoft accounts may not support Graph full-text mailbox search.
 When that occurs, use date-filtered message listing plus subject filters.
 
@@ -409,12 +550,12 @@ Use one folder per application under `applications/`:
 
 ```text
 applications/company-role/
-  Zicong_Liang_<Company>_<Role>_Resume.docx
+  <Candidate_Name>_<Company>_<Role>_Resume.docx
   fit_analysis.json
   job_description.txt
   proposed_edits.json
   render_check/
-    Zicong_Liang_<Company>_<Role>_Resume.pdf
+    <Candidate_Name>_<Company>_<Role>_Resume.pdf
 ```
 
 Cover letters and recruiter messages are optional. Create them only when explicitly requested.
@@ -439,7 +580,13 @@ Use this folder when you just want the final resume files in one place. Each app
 
 ## Tracker
 
-The tracker is a local CSV at:
+The tracker source of truth is local SQLite at:
+
+```text
+data/resume_optimizer.db
+```
+
+It exports a local compatibility CSV at:
 
 ```text
 tracker/applications.csv
@@ -457,6 +604,7 @@ interview
 offer
 rejected
 closed
+outdated
 ```
 
 Use `scripts/tracker.py` to update it manually when you start or submit an application.
@@ -488,6 +636,15 @@ The flow must stop for review on:
 
 Current policy: legal/privacy/self-ID/final-submit gates are auto-approved only when the exact answer or approval is covered by `profile/facts.md` or `profile/application_answers.json`. If a form asks for anything not covered there, stop and ask before continuing.
 
+Generate an ATS-safe form plan from exact visible field labels before browser
+filling. The plan never prints answer values and refuses missing facts, policy-
+disabled categories, unfamiliar question wording, login, CAPTCHA, upload, and
+submit actions:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\ats_adapter.py --url "https://job-boards.greenhouse.io/example/jobs/1" --fields tmp\visible_fields.json
+```
+
 For real applications, follow the reusable runbook:
 
 ```text
@@ -495,3 +652,30 @@ docs/real_application_runbook.md
 ```
 
 It captures the effective sequence, known friction points, and submit-gate checklist from the first LinkedIn Easy Apply and external ATS applications.
+
+## Portable Setup
+
+The GitHub repository contains only reusable code, documentation, and example
+configuration. Personal facts, resumes, application history, and generated
+packets stay in ignored local paths.
+
+Bootstrap a clean Windows workstation:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\scripts\bootstrap_workstation.ps1
+```
+
+To move your own private state, create an authenticated encrypted archive on the
+old workstation and import it after bootstrapping the new one:
+
+```powershell
+.\scripts\export_private_state.ps1
+.\scripts\verify_private_state.ps1 -Archive .\backups\resume_optimizer_state_<timestamp>.rostate
+.\scripts\import_private_state.ps1 -Archive D:\Transfer\resume_optimizer_state.rostate
+```
+
+See `docs/workstation_migration.md` for the complete sharing, migration,
+credential-reconnection, and verification procedure. The reusable Codex
+heartbeat prompt is in
+`automation/reconcile-job-application-emails.prompt.md`.
