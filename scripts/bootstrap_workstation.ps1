@@ -85,7 +85,7 @@ try {
     Invoke-Checked -Label 'Initialize SQLite state' -Command $Python `
         -Arguments @('scripts\migrate_to_sqlite.py')
     Invoke-Checked -Label 'Configure reconciliation cursors' -Command $Python `
-        -Arguments @('scripts\scheduled_reconcile.py', 'configure', '--interval-minutes', '240')
+        -Arguments @('scripts\scheduled_reconcile.py', 'configure')
     Invoke-Checked -Label 'Validate public/private boundaries' -Command $Python `
         -Arguments @('scripts\security_check.py', '--fail-on-finding')
     Invoke-Checked -Label 'Validate local setup' -Command $Python `

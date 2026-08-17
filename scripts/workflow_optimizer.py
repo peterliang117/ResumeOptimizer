@@ -48,7 +48,11 @@ BARRIER_POLICIES: dict[str, tuple[str, str, str]] = {
     "duplicate_role": ("avoid", "skip_candidate", "An equivalent application already exists."),
     "employer_saturation": ("avoid", "skip_candidate", "Enough similar roles at this employer were already submitted."),
     "explicit_no_sponsorship": ("avoid", "skip_candidate", "The posting explicitly conflicts with the saved sponsorship requirement."),
-    "staffing_company": ("avoid", "skip_candidate", "The source is a staffing or recruiting intermediary."),
+    "staffing_company": (
+        "avoid",
+        "skip_candidate",
+        "Reject contract staffing placements or unnamed clients; a verified external recruiter representing a named direct employer remains eligible.",
+    ),
     "role_mismatch": ("avoid", "skip_candidate", "The core deliverable is outside the accepted data role families."),
     "linkedin_wrapper": ("switch", "open_direct_ats", "Use the direct employer ATS URL and do not revisit the wrapper."),
     "browser_native_host": ("switch", "switch_browser_path", "Switch browser path after one native-host failure; do not repair it during an application."),

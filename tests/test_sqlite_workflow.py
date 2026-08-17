@@ -137,6 +137,73 @@ class SQLiteWorkflowTests(unittest.TestCase):
             self.assertFalse(stale["eligible"])
             self.assertTrue(any("168-hour" in item for item in stale["hard_gate"]["hard_filter_failures"]))
 
+    def test_discovery_rejects_remote_us_role_that_excludes_nyc_metro(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            criteria = root / "criteria.md"
+            criteria.write_text("- Target pay: at least `$160,000` base\n", encoding="utf-8")
+            candidate = {
+                "company": "Example IoT",
+                "role": "Senior AI Data Engineer",
+                "source": "Greenhouse",
+                "url": "https://example.test/jobs/remote-exclusion",
+                "location": "Remote - US",
+                "work_mode": "Remote",
+                "posted_at": datetime.now(timezone.utc).isoformat(),
+                "compensation_high": 178650,
+                "direct_employer": True,
+                "match_score": 84,
+            }
+            job_text = """
+            Build Python and SQL data pipelines and production AI systems.
+            This role is open to candidates residing in the US except the San
+            Francisco Bay Metro Area, NYC Metro Area, and Washington, D.C.
+            Metro Area.
+            """
+
+            result = discovery.evaluate_candidate(
+                candidate, job_text, criteria_path=criteria, db_path=root / "workflow.db"
+            )
+
+            self.assertFalse(result["eligible"])
+            self.assertTrue(any(
+                "explicitly excludes" in item
+                for item in result["hard_gate"]["hard_filter_failures"]
+            ))
+
+    def test_discovery_rejects_remote_us_role_requiring_bay_area_relocation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            criteria = root / "criteria.md"
+            criteria.write_text("- Target pay: at least `$160,000` base\n", encoding="utf-8")
+            candidate = {
+                "company": "Example Community",
+                "role": "Senior Software Engineer, Data Platform",
+                "source": "Greenhouse",
+                "url": "https://example.test/jobs/remote-relocation",
+                "location": "Remote (U.S.)",
+                "work_mode": "Remote",
+                "posted_at": datetime.now(timezone.utc).isoformat(),
+                "compensation_high": 245000,
+                "direct_employer": True,
+                "match_score": 91,
+            }
+            job_text = """
+            Build Python and SQL data pipelines and data infrastructure.
+            Candidates must reside in or be willing to relocate to the San
+            Francisco Bay Area. Relocation assistance may be available.
+            """
+
+            result = discovery.evaluate_candidate(
+                candidate, job_text, criteria_path=criteria, db_path=root / "workflow.db"
+            )
+
+            self.assertFalse(result["eligible"])
+            self.assertTrue(any(
+                "out-of-scope metro" in item
+                for item in result["hard_gate"]["hard_filter_failures"]
+            ))
+
     def test_discovery_allows_tier_b_only_for_strong_match(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -271,11 +338,30 @@ class SQLiteWorkflowTests(unittest.TestCase):
             self.assertTrue(manifest["since_datetime"])
             tasks = {row["task_name"] for row in scheduled_reconcile.due_tasks(db)}
             self.assertIn(scheduled_reconcile.ALERT_TASK, tasks)
-            self.assertEqual(manifest["schedule"]["interval_minutes"], 120)
+            self.assertEqual(manifest["schedule"]["interval_minutes"], 360)
 
             scheduled_reconcile.mark_schedule_run(scheduled_reconcile.ALERT_TASK, path=db)
             refreshed = scheduled_reconcile.alert_discovery_manifest(db)
             self.assertTrue(refreshed["schedule"]["last_run_at"])
+            self.assertFalse(refreshed["schedule"]["due"])
+
+    def test_inbound_recruiter_manifest_has_independent_cursor_and_source_rules(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "workflow.db"
+            manifest = scheduled_reconcile.recruiter_discovery_manifest(db)
+
+            self.assertEqual(manifest["source"], "Inbound recruiter outreach")
+            self.assertTrue(manifest["rules"]["lead_only"])
+            self.assertTrue(manifest["rules"]["allow_external_recruiter_for_named_direct_employer"])
+            self.assertTrue(manifest["rules"]["reject_staffing_placement_or_unnamed_client"])
+            self.assertTrue(manifest["rules"]["surface_unresolved_before_advancing_cursor"])
+            self.assertFalse(manifest["rules"]["store_message_body"])
+            tasks = {row["task_name"] for row in scheduled_reconcile.due_tasks(db)}
+            self.assertIn(scheduled_reconcile.RECRUITER_TASK, tasks)
+            self.assertEqual(manifest["schedule"]["interval_minutes"], 240)
+
+            scheduled_reconcile.mark_schedule_run(scheduled_reconcile.RECRUITER_TASK, path=db)
+            refreshed = scheduled_reconcile.recruiter_discovery_manifest(db)
             self.assertFalse(refreshed["schedule"]["due"])
 
     def test_full_pipeline_manifest_has_independent_cursor(self):
@@ -285,11 +371,76 @@ class SQLiteWorkflowTests(unittest.TestCase):
             self.assertTrue(manifest["schedule"]["due"])
             self.assertTrue(manifest["rules"]["serialized"])
             self.assertEqual(manifest["rules"]["queue_capacity"], 10)
-            self.assertEqual(manifest["schedule"]["interval_minutes"], 30)
+            self.assertEqual(manifest["schedule"]["interval_minutes"], 120)
 
             scheduled_reconcile.mark_schedule_run(scheduled_reconcile.PIPELINE_TASK, path=db)
             refreshed = scheduled_reconcile.pipeline_manifest(db)
             self.assertFalse(refreshed["schedule"]["due"])
+
+    def test_empty_actionable_queue_accelerates_discovery_after_six_hours(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "workflow.db"
+            current = datetime(2026, 8, 6, 12, 0, tzinfo=timezone.utc)
+            scheduled_reconcile.configure_schedule(
+                scheduled_reconcile.ALERT_TASK,
+                scheduled_reconcile.ALERT_INTERVAL_MINUTES,
+                path=db,
+            )
+            job_store.upsert_job(
+                {
+                    "company": "Blocked Example",
+                    "role": "Data Engineer",
+                    "url": "https://example.test/blocked",
+                    "status": "manual_apply_needed",
+                },
+                path=db,
+            )
+            with job_store.connection(db) as conn:
+                conn.execute(
+                    "UPDATE scheduled_tasks SET last_run_at=?, next_run_at=? WHERE task_name=?",
+                    (
+                        (current - timedelta(minutes=361)).isoformat(),
+                        (current + timedelta(minutes=89)).isoformat(),
+                        scheduled_reconcile.ALERT_TASK,
+                    ),
+                )
+
+            tasks = {
+                row["task_name"]: row
+                for row in scheduled_reconcile.due_tasks(db, now=current)
+            }
+
+            self.assertTrue(tasks[scheduled_reconcile.ALERT_TASK]["due"])
+            self.assertEqual(
+                tasks[scheduled_reconcile.ALERT_TASK]["due_reason"], "urgent_refill"
+            )
+
+    def test_empty_actionable_queue_respects_discovery_cooldown(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "workflow.db"
+            current = datetime(2026, 8, 6, 12, 0, tzinfo=timezone.utc)
+            scheduled_reconcile.configure_schedule(
+                scheduled_reconcile.ALERT_TASK,
+                scheduled_reconcile.ALERT_INTERVAL_MINUTES,
+                path=db,
+            )
+            with job_store.connection(db) as conn:
+                conn.execute(
+                    "UPDATE scheduled_tasks SET last_run_at=?, next_run_at=? WHERE task_name=?",
+                    (
+                        (current - timedelta(minutes=120)).isoformat(),
+                        (current + timedelta(minutes=240)).isoformat(),
+                        scheduled_reconcile.ALERT_TASK,
+                    ),
+                )
+
+            tasks = {
+                row["task_name"]: row
+                for row in scheduled_reconcile.due_tasks(db, now=current)
+            }
+
+            self.assertFalse(tasks[scheduled_reconcile.ALERT_TASK]["due"])
+            self.assertEqual(tasks[scheduled_reconcile.ALERT_TASK]["due_reason"], "")
 
     def test_remote_approval_is_scoped_expiring_and_single_use(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -602,6 +753,133 @@ class SQLiteWorkflowTests(unittest.TestCase):
             self.assertEqual(statuses["Old Example"], "outdated")
             self.assertEqual(statuses["Active Example"], "application_started")
             self.assertEqual(len(result["expired"]), 1)
+
+    def test_rolling_maintenance_refills_when_blocked_jobs_hide_a_thin_actionable_queue(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "workflow.db"
+            statuses = [
+                "resume_ready",
+                "application_started",
+                "manual_apply_needed",
+                "pending_remote_approval",
+            ]
+            for index, status in enumerate(statuses):
+                job_store.upsert_job(
+                    {
+                        "company": f"Example {index}",
+                        "role": "Data Engineer",
+                        "source": "Greenhouse",
+                        "url": f"https://example.test/{index}",
+                        "status": status,
+                    },
+                    path=db,
+                )
+
+            result = queue_maintenance.maintain_queue(
+                db_path=db,
+                capacity=10,
+                low_watermark=3,
+            )
+
+            self.assertEqual(result["open_jobs"], 4)
+            self.assertEqual(result["actionable_jobs"], 2)
+            self.assertEqual(result["blocked_jobs"], 2)
+            self.assertEqual(result["available_slots"], 6)
+            self.assertTrue(result["refill_recommended"])
+
+    def test_rolling_maintenance_expires_blocker_and_updates_tracker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "workflow.db"
+            current = datetime(2026, 8, 6, 12, 0, tzinfo=timezone.utc)
+            url = "https://example.test/blocked"
+            job_store.record_application_state(
+                {
+                    "company": "Blocked Example",
+                    "role": "Data Engineer",
+                    "source": "Greenhouse",
+                    "url": url,
+                    "status": "pending_remote_approval",
+                },
+                {
+                    "company": "Blocked Example",
+                    "role": "Data Engineer",
+                    "source": "Greenhouse",
+                    "url": url,
+                    "status": "pending_remote_approval",
+                    "stage": "approval_needed",
+                    "next_action": "Await answer",
+                },
+                path=db,
+            )
+            with job_store.connection(db) as conn:
+                conn.execute(
+                    "UPDATE jobs SET updated_at=? WHERE url=?",
+                    ((current - timedelta(hours=25)).isoformat(), url),
+                )
+
+            result = queue_maintenance.maintain_queue(
+                db_path=db,
+                expire_stale=True,
+                blocked_timeout_hours=24,
+                now=current,
+            )
+
+            self.assertEqual(job_store.queue_rows(db)[0]["status"], "skipped")
+            application = job_store.tracker_rows(db)[0]
+            self.assertEqual(application["status"], "skipped")
+            self.assertEqual(application["stage"], "skipped")
+            self.assertEqual(application["next_action"], "No action")
+            self.assertEqual(len(result["expired_blockers"]), 1)
+            self.assertTrue(result["urgent_refill"])
+
+    def test_rolling_maintenance_closes_only_verified_duplicate_wrapper(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "workflow.db"
+            current = datetime.now(timezone.utc)
+            direct_url = "https://bloomberg.avature.net/careers/JobDetail/Role/20788"
+            wrapper_url = "https://bloomberg.avature.net/careers/Login?jobId=20788"
+            job_store.upsert_job(
+                {
+                    "company": "Bloomberg",
+                    "role": "Senior Data Management Professional",
+                    "source": "LinkedIn",
+                    "url": direct_url,
+                    "status": "manual_apply_needed",
+                    "batch_id": "batch-1",
+                    "match_score": 89,
+                },
+                path=db,
+            )
+            with job_store.connection(db) as conn:
+                conn.execute(
+                    """INSERT INTO jobs
+                       (identity_key, company, role, source, url, status, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        job_store.identity_key(
+                            "Bloomberg", "Senior Data Management Professional", wrapper_url
+                        ),
+                        "Bloomberg",
+                        "Senior Data Management Professional",
+                        "LinkedIn",
+                        wrapper_url,
+                        "manual_apply_needed",
+                        current.isoformat(),
+                        current.isoformat(),
+                    ),
+                )
+
+            result = queue_maintenance.maintain_queue(
+                db_path=db,
+                expire_stale=True,
+                blocked_timeout_hours=24,
+                now=current,
+            )
+            statuses = {row["url"]: row["status"] for row in job_store.queue_rows(db)}
+
+            self.assertEqual(statuses[direct_url], "manual_apply_needed")
+            self.assertEqual(statuses[wrapper_url], "skipped")
+            self.assertEqual(len(result["duplicate_jobs_closed"]), 1)
 
 
 if __name__ == "__main__":

@@ -19,20 +19,41 @@ On every wake:
 4. For Outlook reconciliation, use date-filtered message listing ordered by
    `receivedDateTime` descending. Apply only explicit outcomes with clear
    application context. Store metadata only.
-5. For application processing, follow `docs/real_application_runbook.md`, the
+5. When `inbound_recruiter_discovery` is due, run `recruiter-manifest` and
+   inspect new recruiter outreach even when no application exists. A verified
+   external recruiter representing a named direct employer is eligible; reject
+   contract staffing placements, unnamed clients, and cases where the
+   intermediary is the employer of record. Queue accepted work under the named
+   employer and canonical employer URL. Surface every unresolved lead before
+   running `mark-recruiters-checked`; never advance this cursor silently.
+6. For application processing, follow `docs/real_application_runbook.md`, the
    private profile files, SQLite state, and workflow-optimizer advice. Process
    existing queued work before discovery and never invent evidence or answers.
-6. Discover only when the discovery cursor is due. Verify direct postings and
-   enforce the private geography, compensation, sponsorship, freshness,
-   duplicate, concentration, and role-core rules.
-7. Batch unfamiliar required questions. Use scoped approval only for true
+7. Discover only when the discovery cursor is due. Read
+   `outputs/ats_discovery_snapshot.json` before any direct ATS scan. Accept only
+   schema version 1 snapshots generated within the last 150 minutes. Treat
+   `jobs` as candidate inputs that still require live verification; enforce the
+   private geography, compensation, sponsorship, freshness, duplicate,
+   concentration, and role-core rules. For a fresh snapshot, run
+   `python scripts/verify_discovery_snapshot.py --queue --capacity 10` before
+   using a browser fallback. Treat its
+   `outputs/discovery_verification_report.json` as the decision ledger: every
+   snapshot candidate must have an eligible or rejected record, and only jobs
+   with a saved exact JD, live publication timestamp, factual score, and passed
+   hard gates may be queued. A missing, stale, or `unavailable`
+   snapshot is a discovery-channel failure, not evidence that there are no
+   candidates. Record the validation failure and switch to the signed-in
+   browser or internet connector fallback. Do not retry local ATS sockets after
+   `network_access_denied` from the Codex execution environment.
+8. Batch unfamiliar required questions. Use scoped approval only for true
    exceptions, and stop only the affected application for browser-only
    blockers.
-8. Confirm every submission before updating state. Run `tracker_report.py` and
+9. Confirm every submission before updating state. Run `tracker_report.py` and
    `verify_tracker.py`, mark only completed cursors, and release the lock.
 
-Report only meaningful outcome changes, queued jobs, prepared packets,
-submissions, exception batches, handoffs, ambiguities, and validation failures.
+Report only meaningful outcome changes, inbound recruiter leads, queued jobs,
+prepared packets, submissions, exception batches, handoffs, ambiguities, and
+validation failures.
 Never include private answer values, raw approval tokens, credentials, message
 bodies, OTP codes, or attachments in notifications.
 

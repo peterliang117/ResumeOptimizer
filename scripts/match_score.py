@@ -67,6 +67,7 @@ def split_keywords(value: str | None) -> list[str]:
 
 
 def extract_pay_ranges(text: str) -> list[PayRange]:
+    text = text.replace("\u2013", "-").replace("\u2014", "-").replace("\u2212", "-").replace("\u00a0", " ")
     ranges: list[PayRange] = []
     range_spans: list[tuple[int, int]] = []
     hourly_amount = r"\$?\s*(\d{2,3})(?:\.\d+)?"
@@ -82,15 +83,22 @@ def extract_pay_ranges(text: str) -> list[PayRange]:
         ranges.append(PayRange(low=low, high=high))
         range_spans.append(match.span())
 
-    amount = r"\$?\s*(\d{2,3})(?:\s*,?\s*000|\s*k)?"
+    amount = r"\$?\s*((?:\d{1,3}(?:,\d{3})+)|(?:\d{5,6})|(?:\d{2,3}(?:\.\d+)?\s*k?))"
     range_pattern = re.compile(rf"{amount}\s*(?:-|to|and|/)\s*{amount}", re.IGNORECASE)
     single_pattern = re.compile(rf"{amount}\s*(?:per\s+year|annually|annual|base|salary|yr|year)", re.IGNORECASE)
+
+    def annual_value(raw: str) -> int:
+        cleaned = raw.lower().replace(",", "").replace(" ", "")
+        if cleaned.endswith("k"):
+            return round(float(cleaned[:-1]) * 1000)
+        value = float(cleaned)
+        return round(value * 1000) if value < 1000 else round(value)
 
     for match in range_pattern.finditer(text):
         if any(start <= match.start() < end for start, end in range_spans):
             continue
-        low = int(match.group(1)) * 1000
-        high = int(match.group(2)) * 1000
+        low = annual_value(match.group(1))
+        high = annual_value(match.group(2))
         if low < 50000 or high < 50000:
             continue
         ranges.append(PayRange(low=low, high=high))
@@ -99,7 +107,7 @@ def extract_pay_ranges(text: str) -> list[PayRange]:
     for match in single_pattern.finditer(text):
         if any(start <= match.start() < end for start, end in range_spans):
             continue
-        low = int(match.group(1)) * 1000
+        low = annual_value(match.group(1))
         if low < 50000:
             continue
         ranges.append(PayRange(low=low, high=None))

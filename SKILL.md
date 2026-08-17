@@ -22,7 +22,14 @@ Use this workflow to run the local, privacy-first job application pipeline.
 2. For full lifecycle work, add or read the job from `jobs/queue.csv` using `python scripts/job_queue.py`.
 3. For real applications, read `docs/real_application_runbook.md` before applying or filling forms.
 4. For job discovery, read private search rules from `profile/search_criteria.md`; if it is missing, use `profile/search_criteria.example.md` only as a template and ask the user for the missing local criteria.
-   Use `scripts/queue_screened_job.py` after saving the live job text so a role-core screen and match score pass before the candidate is queued.
+   For `outputs/ats_discovery_snapshot.json`, run
+   `python scripts/verify_discovery_snapshot.py --queue --capacity 10`. The
+   verifier must save the exact JD and a decision record for every candidate;
+   metadata-only, stale, unavailable, or incomplete inputs fail closed and are
+   reported rather than interpreted as an empty market. Use
+   `scripts/queue_screened_job.py` for individual browser or connector jobs
+   after saving the live job text so the shared role-core and match-score gates
+   pass before queueing.
 5. Run `python scripts/run_application_pipeline.py ...` to create the application packet, store the job description, generate `proposed_edits.json`, create `fit_analysis.json`, and update `tracker/applications.csv` to `analyzed`. The default mode is `codex`: it writes a local evidence packet without calling Azure or another external LLM, then Codex performs fact-bound tailoring. Use `--llm-provider azure`, `local`, or `auto` only when explicitly requested.
 6. For direct resume-only work, run `python scripts/tailor.py --dry-run ...` to generate `outputs/suggestions.json`. Use `--llm-provider codex` for the default local review flow, `--llm-provider azure` to force Azure, `--llm-provider local` to force a configured local model server, or `--llm-provider none` to force a keyword-only fallback. The personal OpenAI API path is disabled for this workflow.
 7. Create or inspect `proposed_edits.json`.
@@ -106,27 +113,31 @@ Use a repeating batch lifecycle:
 1. Read private discovery rules from `profile/search_criteria.md`.
 2. If a current batch exists, process it before performing new discovery.
 3. When no current batch is open, discover and hard-screen current jobs.
-4. Assign one `batch_id`, store each candidate's `match_score`, and immediately
+4. Consume fresh ATS snapshots through `scripts/verify_discovery_snapshot.py`.
+   Do not manually summarize snapshot counts without producing
+   `outputs/discovery_verification_report.json`; every candidate needs an
+   evidence-backed eligible or rejected decision.
+5. Assign one `batch_id`, store each candidate's `match_score`, and immediately
    add every verified match to `jobs/queue.csv`, up to 10 jobs. Do not wait for
    a full batch before writing valid candidates.
-5. Process the batch from highest score to lowest score.
-6. For each job, read the live description, revalidate hard filters, prepare the
+6. Process the batch from highest score to lowest score.
+7. For each job, read the live description, revalidate hard filters, prepare the
    packet, pass the resume review gate, consult the adaptive effort gate, fill
    the application, finish the workflow attempt, and update state.
-7. A submitted, skipped, expired, rejected, blocked, or manual-handoff job counts
+8. A submitted, skipped, expired, rejected, blocked, or manual-handoff job counts
    as iterated. Do not let one ATS blocker prevent moving to the next job.
-8. Do not perform replacement discovery while open jobs remain. After every job
+9. Do not perform replacement discovery while open jobs remain. After every job
    in the current batch has been iterated, start another discovery run and add
    whatever verified matches are available, up to 10.
-9. Legal/privacy/self-ID/final-submit gates may proceed only when explicitly
+10. Legal/privacy/self-ID/final-submit gates may proceed only when explicitly
    covered by private facts and `answer_policy`; otherwise stop and ask.
-10. If autofill, upload, browser access, account login, CAPTCHA, required user
+11. If autofill, upload, browser access, account login, CAPTCHA, required user
     interaction, or submit cannot be completed automatically, provide a manual
     handoff with the direct application link, company and role, local resume
     path, exact blocker, covered answers, unanswered required fields, and
     tracker status. Never report a blocked application without the link the
     user can open.
-11. After application work, check Outlook for clear application receipts,
+12. After application work, check Outlook for clear application receipts,
     interview invitations, next-round notices, offers, and rejections. Apply
     only unambiguous state transitions and preserve the message link.
 

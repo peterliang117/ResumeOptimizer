@@ -104,6 +104,13 @@ Prepare an application packet for the next queued job only:
 .\scripts\jobctl.ps1 prepare-next-packet
 ```
 
+Select the next prepared job for browser application work without regenerating
+its packet or resume:
+
+```powershell
+python scripts\job_queue.py next-application
+```
+
 Generate a browser/agent handoff file for a tracker row:
 
 ```powershell
