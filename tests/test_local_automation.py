@@ -50,6 +50,8 @@ class LocalAutomationTests(unittest.TestCase):
         joined = " ".join(" ".join(command) for command in commands)
         self.assertNotIn("ats_adapter.py", joined)
         self.assertNotIn("submit", joined.lower())
+        self.assertIn("--blocked-timeout-hours 24", joined)
+        self.assertIn("--recruiter-interval-minutes 240", joined)
 
 
 if __name__ == "__main__":

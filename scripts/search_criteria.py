@@ -19,6 +19,7 @@ class SearchCriteria:
     target_pay: int | None = None
     secondary_pay_floor: int | None = None
     secondary_pay_min_score: int = 82
+    minimum_match_score: int = 75
     max_active_per_employer: int = 1
     daily_submission_target: int | None = None
     weekly_submission_min: int | None = None
@@ -123,6 +124,10 @@ def read_search_criteria(path: Path = Path("profile/search_criteria.md")) -> Sea
             parsed = _parse_integer(stripped.split(":", 1)[1])
             if parsed is not None:
                 criteria.secondary_pay_min_score = parsed
+        elif stripped.startswith("- Minimum target match score:"):
+            parsed = _parse_integer(stripped.split(":", 1)[1])
+            if parsed is not None:
+                criteria.minimum_match_score = parsed
         elif stripped.startswith("- Maximum active applications per employer:"):
             parsed = _parse_integer(stripped.split(":", 1)[1])
             if parsed is not None:

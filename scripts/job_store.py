@@ -645,6 +645,93 @@ def record_event(
     )
 
 
+def transition_job_status(
+    url: str,
+    status: str,
+    *,
+    notes: str | None = None,
+    stage: str | None = None,
+    stage_date: str | None = None,
+    next_action: str | None = None,
+    path: Path | None = None,
+    conn: sqlite3.Connection | None = None,
+    event_type: str = "job_status_updated",
+) -> dict[str, int]:
+    """Update one existing job and any linked tracker rows in one transaction."""
+
+    if conn is None:
+        initialize(path)
+        with connection(path) as managed:
+            return transition_job_status(
+                url,
+                status,
+                notes=notes,
+                stage=stage,
+                stage_date=stage_date,
+                next_action=next_action,
+                path=path,
+                conn=managed,
+                event_type=event_type,
+            )
+    normalized = normalized_url(url)
+    matches = [
+        row
+        for row in conn.execute("SELECT * FROM jobs ORDER BY id").fetchall()
+        if normalized_url(row["url"]) == normalized
+    ]
+    if len(matches) != 1:
+        raise ValueError(f"Expected one queue job for URL, found {len(matches)}: {url}")
+
+    job = matches[0]
+    now = utc_now()
+    job_updates: dict[str, str] = {"status": status, "updated_at": now}
+    if notes is not None:
+        job_updates["notes"] = notes
+    conn.execute(
+        f"UPDATE jobs SET {', '.join(f'{field}=?' for field in job_updates)} WHERE id=?",
+        [*job_updates.values(), job["id"]],
+    )
+
+    applications = conn.execute(
+        "SELECT * FROM applications WHERE job_id=? OR identity_key=? ORDER BY id",
+        (job["id"], identity_key(job["company"], job["role"], job["url"])),
+    ).fetchall()
+    for application in applications:
+        app_updates: dict[str, str] = {"status": status, "updated_at": now}
+        if notes is not None:
+            app_updates["notes"] = notes
+        if stage is not None:
+            app_updates["stage"] = stage
+        if stage_date is not None:
+            app_updates["stage_date"] = stage_date
+        if next_action is not None:
+            app_updates["next_action"] = next_action
+        conn.execute(
+            f"UPDATE applications SET {', '.join(f'{field}=?' for field in app_updates)} WHERE id=?",
+            [*app_updates.values(), application["id"]],
+        )
+        record_event(
+            conn,
+            application_id=int(application["id"]),
+            job_id=int(job["id"]),
+            event_type="state_updated",
+            source=str(job["source"] or ""),
+            summary=notes or "",
+            metadata={"status": status, "stage": stage or ""},
+        )
+
+    record_event(
+        conn,
+        application_id=None,
+        job_id=int(job["id"]),
+        event_type=event_type,
+        source=str(job["source"] or ""),
+        summary=notes or "",
+        metadata={"status": status},
+    )
+    return {"jobs": 1, "applications": len(applications)}
+
+
 def record_application_state(
     job_values: dict[str, Any], application_values: dict[str, Any], *, path: Path | None = None
 ) -> None:

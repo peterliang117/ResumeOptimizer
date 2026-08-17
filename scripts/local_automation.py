@@ -32,12 +32,14 @@ DEFAULT_LOCK = ROOT / "tmp" / "local_automation.lock"
 
 @dataclass(frozen=True)
 class AutomationConfig:
-    interval_minutes: int = 30
-    outlook_interval_minutes: int = 240
-    discovery_interval_minutes: int = 120
-    pipeline_interval_minutes: int = 30
+    interval_minutes: int = 120
+    outlook_interval_minutes: int = 480
+    discovery_interval_minutes: int = 360
+    recruiter_interval_minutes: int = 240
+    pipeline_interval_minutes: int = 120
     queue_capacity: int = 10
     low_watermark: int = 3
+    blocked_timeout_hours: int = 24
     enable_ats_discovery_report: bool = False
     prepare_packets: bool = False
     packet_limit: int = 3
@@ -70,7 +72,8 @@ def _coerce_config(values: dict[str, object]) -> AutomationConfig:
         merged[key] = _as_bool(merged[key])
     for key in {
         "interval_minutes", "outlook_interval_minutes", "discovery_interval_minutes",
-        "pipeline_interval_minutes", "queue_capacity", "low_watermark", "packet_limit",
+        "recruiter_interval_minutes", "pipeline_interval_minutes", "queue_capacity", "low_watermark",
+        "blocked_timeout_hours", "packet_limit",
         "min_score", "max_safe_retries", "retry_delay_seconds", "stale_lock_minutes",
     }:
         merged[key] = int(merged[key])
@@ -79,11 +82,14 @@ def _coerce_config(values: dict[str, object]) -> AutomationConfig:
         config.interval_minutes,
         config.outlook_interval_minutes,
         config.discovery_interval_minutes,
+        config.recruiter_interval_minutes,
         config.pipeline_interval_minutes,
     ) <= 0:
         raise ValueError("automation intervals must be positive")
     if config.queue_capacity <= 0 or not 0 <= config.low_watermark <= config.queue_capacity:
         raise ValueError("low_watermark must be between zero and queue_capacity")
+    if config.blocked_timeout_hours <= 0:
+        raise ValueError("blocked_timeout_hours must be positive")
     if config.packet_limit <= 0 or not 0 <= config.min_score <= 100:
         raise ValueError("packet_limit must be positive and min_score must be between 0 and 100")
     if config.max_safe_retries < 0 or config.retry_delay_seconds < 0 or config.stale_lock_minutes <= 0:
@@ -240,13 +246,19 @@ def run_workflow(config: AutomationConfig, *, dry_run: bool, logger: logging.Log
             "scripts/scheduled_reconcile.py", "configure",
             "--outlook-interval-minutes", str(config.outlook_interval_minutes),
             "--alert-interval-minutes", str(config.discovery_interval_minutes),
+            "--recruiter-interval-minutes", str(config.recruiter_interval_minutes),
             "--pipeline-interval-minutes", str(config.pipeline_interval_minutes),
         ],
         steps, logger, dry_run=dry_run,
     )
     execute(
         "queue_maintenance",
-        ["scripts/queue_maintenance.py", "--expire-stale", "--capacity", str(config.queue_capacity), "--low-watermark", str(config.low_watermark)],
+        [
+            "scripts/queue_maintenance.py", "--expire-stale",
+            "--capacity", str(config.queue_capacity),
+            "--low-watermark", str(config.low_watermark),
+            "--blocked-timeout-hours", str(config.blocked_timeout_hours),
+        ],
         steps, logger, dry_run=dry_run,
     )
     consume_events(repo_path(config.mailbox_events_path), steps, logger, dry_run=dry_run)

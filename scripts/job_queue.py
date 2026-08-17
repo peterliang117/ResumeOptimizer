@@ -8,9 +8,25 @@ import csv
 from pathlib import Path
 
 try:
-    from job_store import DEFAULT_DB, DEFAULT_QUEUE, database_enabled, export_legacy_csv, queue_rows, upsert_job
+    from job_store import (
+        DEFAULT_DB,
+        DEFAULT_QUEUE,
+        database_enabled,
+        export_legacy_csv,
+        queue_rows,
+        transition_job_status,
+        upsert_job,
+    )
 except ImportError:  # pragma: no cover - package invocation in tests
-    from scripts.job_store import DEFAULT_DB, DEFAULT_QUEUE, database_enabled, export_legacy_csv, queue_rows, upsert_job
+    from scripts.job_store import (
+        DEFAULT_DB,
+        DEFAULT_QUEUE,
+        database_enabled,
+        export_legacy_csv,
+        queue_rows,
+        transition_job_status,
+        upsert_job,
+    )
 
 
 QUEUE_FIELDS = [
@@ -43,6 +59,15 @@ TERMINAL_BATCH_STATUSES = {
 }
 
 PRIORITY_ORDER = {"high": 0, "medium": 1, "low": 2}
+APPLICATION_STATUSES = {"resume_ready", "application_started"}
+APPLICATION_STATUS_ORDER = {"application_started": 0, "resume_ready": 1}
+STATUS_TRACKER_DEFAULTS = {
+    "closed": ("posting_closed", "No action"),
+    "expired": ("posting_closed", "No action"),
+    "outdated": ("posting_closed", "No action"),
+    "rejected": ("rejected", "No action"),
+    "skipped": ("skipped", "No action"),
+}
 
 
 def read_rows(path: Path) -> list[dict[str, str]]:
@@ -98,6 +123,28 @@ def sorted_queued_rows(rows: list[dict[str, str]], batch_id: str = "") -> list[d
     )
 
 
+def sorted_application_rows(
+    rows: list[dict[str, str]], batch_id: str = ""
+) -> list[dict[str, str]]:
+    """Return jobs whose packets are ready for browser application work."""
+
+    candidates = [
+        row
+        for row in rows
+        if row.get("status", "") in APPLICATION_STATUSES
+        and row.get("url")
+        and (not batch_id or row.get("batch_id", "") == batch_id)
+    ]
+    return sorted(
+        candidates,
+        key=lambda row: (
+            -score_value(row),
+            APPLICATION_STATUS_ORDER.get(row.get("status", ""), 2),
+            PRIORITY_ORDER.get(row.get("priority", "medium").lower(), 1),
+        ),
+    )
+
+
 def batch_progress(
     rows: list[dict[str, str]], batch_id: str, target_size: int
 ) -> tuple[list[dict[str, str]], list[dict[str, str]], int, bool]:
@@ -134,6 +181,12 @@ def parse_args() -> argparse.Namespace:
 
     next_parser = subparsers.add_parser("next", help="Print the next queued job.")
     next_parser.add_argument("--batch-id", default="")
+
+    next_application = subparsers.add_parser(
+        "next-application",
+        help="Print the next resume-ready or already-started application.",
+    )
+    next_application.add_argument("--batch-id", default="")
 
     batch_status = subparsers.add_parser(
         "batch-status",
@@ -224,6 +277,20 @@ def main() -> int:
         print("No queued jobs.")
         return 1
 
+    if args.command == "next-application":
+        applications = sorted_application_rows(rows, args.batch_id)
+        if applications:
+            row = applications[0]
+            print(
+                f"{row.get('company', '')}\t{row.get('role', '')}\t"
+                f"{row.get('source', '')}\t{row.get('url', '')}\t"
+                f"{row.get('batch_id', '')}\t{row.get('match_score', '')}\t"
+                f"{row.get('status', '')}"
+            )
+            return 0
+        print("No application-ready jobs.")
+        return 1
+
     if args.command == "batch-status":
         batch_id = args.batch_id or latest_batch_id(rows)
         if not batch_id:
@@ -261,7 +328,18 @@ def main() -> int:
                 if args.notes is not None:
                     row["notes"] = args.notes
                 if use_database:
-                    upsert_job(row, path=args.db)
+                    stage, next_action = STATUS_TRACKER_DEFAULTS.get(
+                        args.status, (None, None)
+                    )
+                    transition_job_status(
+                        args.url,
+                        args.status,
+                        notes=args.notes,
+                        stage=stage,
+                        stage_date=None,
+                        next_action=next_action,
+                        path=args.db,
+                    )
                     export_legacy_csv(queue_path=args.queue, path=args.db)
                 else:
                     write_rows(args.queue, rows)

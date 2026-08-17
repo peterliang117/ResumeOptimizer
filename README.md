@@ -167,7 +167,7 @@ the current CSV files:
 ```powershell
 .\.venv\Scripts\python.exe scripts\migrate_to_sqlite.py --import-csv
 .\.venv\Scripts\python.exe scripts\resume_evidence.py init
-.\.venv\Scripts\python.exe scripts\scheduled_reconcile.py configure --interval-minutes 240
+.\.venv\Scripts\python.exe scripts\scheduled_reconcile.py configure
 ```
 
 The discovery coordinator can use bounded Codex subagents for public scouting,
@@ -183,8 +183,10 @@ refresh the local recommendations report.
 ## Windows Local Automation
 
 Use `scripts/local_automation.py` as the Windows-local maintenance entrypoint.
-Its default wake interval is 30 minutes, with independent two-hour discovery
-and four-hour Outlook cursors. It coordinates SQLite maintenance, metadata-only
+Its default wake interval is 30 minutes, with a two-hour discovery cursor that
+accelerates to 30 minutes when no actionable jobs remain, plus a four-hour
+Outlook outcome cursor and a separate 30-minute inbound-recruiter cursor. It
+coordinates SQLite maintenance, metadata-only
 Outlook events, CSV export, optional read-only discovery reporting, tracker
 validation, and dashboard refresh. It has no browser or submit action. See
 [`docs/local_automation.md`](docs/local_automation.md) for the ignored local
@@ -251,12 +253,14 @@ exports for existing scripts and the dashboard. Run the rolling maintenance step
 before discovery:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\queue_maintenance.py --expire-stale --capacity 10 --low-watermark 3
+.\.venv\Scripts\python.exe scripts\queue_maintenance.py --expire-stale --capacity 10 --low-watermark 3 --blocked-timeout-hours 24
 ```
 
 Use `refill_recommended: true` or `available_slots` to decide how many verified
-candidates to find. Existing `batch-status` commands remain available for legacy
-batch runs.
+candidates to find. Maintenance synchronizes terminal status changes to existing
+tracker rows, closes verified ATS wrapper duplicates, and skips blockers after
+the configured attempt budget. Existing `batch-status` commands remain available
+for legacy batch runs.
 
 Keep jobs you want to evaluate in a local queue:
 
@@ -283,7 +287,7 @@ The real queue lives at `jobs/queue.csv` and is ignored by Git. Use `jobs/queue.
 
 For real candidates, use the role-core queue gate after saving the live job
 description locally. It writes a private screening record and refuses to queue
-staffing posts, explicit no-sponsorship posts, GRC/compliance-operations roles,
+contract staffing or unnamed-client posts, explicit no-sponsorship posts, GRC/compliance-operations roles,
 and roles without clear data/analytics engineering work:
 
 ```bash
@@ -351,6 +355,12 @@ python scripts/ats_scan.py
 ```
 
 The scanner supports Greenhouse, Ashby, Lever, and Workday public job feeds.
+For the recurring Codex heartbeat, install the read-only Windows snapshot task
+so ATS network access occurs outside the Codex sandbox:
+
+```powershell
+.\scripts\install_ats_snapshot_task.ps1 -Action Install -EveryHours 2 -RunNow
+```
 Greenhouse and Ashby use `board` slugs, Lever uses a `site` slug, and Workday
 requires the employer's public CXS `api` URL plus its career-site `site` name.
 Keep the real `profile/portals.yml` local because it can reveal target companies
@@ -532,6 +542,25 @@ email body. The bridge updates SQLite and refreshes both CSV exports atomically.
 
 Personal Microsoft accounts may not support Graph full-text mailbox search.
 When that occurs, use date-filtered message listing plus subject filters.
+
+## Inbound Recruiter Lead Discovery
+
+Keep new recruiter opportunities separate from outcomes for applications that
+already exist in the tracker:
+
+1. Run `python scripts/scheduled_reconcile.py recruiter-manifest` and inspect
+   Outlook messages received after its `since_datetime`.
+2. Treat a recruiter message as a lead when it identifies a named hiring
+   employer and role. Verify the recruiter identity and corroborate the role
+   through the employer, its official ATS, or direct company/recruiter evidence.
+3. Reject contract staffing placements, unnamed-client opportunities, and roles
+   where the intermediary is the employer of record. Do not reject a verified
+   external recruiter merely because the sender works for a recruiting firm.
+4. Queue a qualified role under the named direct employer and canonical employer
+   URL. Store only metadata; never store the email body or alter mailbox state.
+5. Surface every unresolved recruiter lead or validation failure before running
+   `python scripts/scheduled_reconcile.py mark-recruiters-checked`. Do not advance
+   this cursor silently while a reachable recruiter message remains unclassified.
 
 ## Resume-Only Workflow
 

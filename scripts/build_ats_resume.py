@@ -83,17 +83,30 @@ def _add_entry(document: Any, title: str, meta: list[str]) -> None:
     paragraph.paragraph_format.tab_stops.add_tab_stop(Inches(7.35), WD_TAB_ALIGNMENT.RIGHT)
     paragraph.add_run(title.strip())
     clean_meta = [item.strip() for item in meta if item.strip()]
+    if len(clean_meta) >= 2 and clean_meta[-2].endswith(("-", "–", "—")):
+        clean_meta[-2:] = [f"{clean_meta[-2]} {clean_meta[-1]}"]
     if clean_meta:
         paragraph.add_run("\t" + " | ".join(clean_meta))
 
 
 def _table_rows(table: Any) -> list[tuple[list[str], list[str]]]:
+    def cell_lines(cell: Any) -> list[str]:
+        # Some source-resume locations are stored in Word content controls.
+        # python-docx excludes that text from ``paragraph.text``, so read the
+        # text nodes from each direct cell paragraph instead.
+        lines = []
+        for paragraph in cell._tc.xpath(".//w:p[not(ancestor::w:p)]"):
+            text = "".join(node.text or "" for node in paragraph.xpath(".//w:t")).strip()
+            if text:
+                lines.append(text)
+        return lines
+
     rows: list[tuple[list[str], list[str]]] = []
     for row in table.rows:
-        left = [paragraph.text.strip() for paragraph in row.cells[0].paragraphs if paragraph.text.strip()]
+        left = cell_lines(row.cells[0])
         right = []
         if len(row.cells) > 1:
-            right = [paragraph.text.strip() for paragraph in row.cells[1].paragraphs if paragraph.text.strip()]
+            right = cell_lines(row.cells[1])
         rows.append((left, right))
     return rows
 

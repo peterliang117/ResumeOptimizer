@@ -55,6 +55,21 @@ Preferred
         self.assertEqual(by_name["kafka"]["status"], "unsupported")
         self.assertEqual(by_name["tableau"]["priority"], "nice")
 
+    def test_conditional_profile_language_is_not_direct_tool_evidence(self):
+        job = "Preferred\n- Snowflake experience."
+        resume = [SimpleNamespace(text="Built SQL Server ETL pipelines and data warehouse models.")]
+        profile = """Resume edits must not state or imply hands-on professional dbt
+or Snowflake experience unless that experience is confirmed separately."""
+
+        report = build_selection_report(job, resume, profile)
+        snowflake = next(item for item in report["criteria"] if item["criterion"] == "snowflake")
+
+        self.assertEqual(snowflake["status"], "transferable")
+        self.assertNotEqual(
+            snowflake["evidence"],
+            "or Snowflake experience unless that experience is confirmed separately.",
+        )
+
     def test_edit_cannot_turn_transferable_tool_into_claim(self):
         report = {
             "criteria": [

@@ -14,6 +14,19 @@ from jobctl import approved_candidates, existing_refill_report_keys  # noqa: E40
 
 
 class JobctlRefillTests(unittest.TestCase):
+    def test_sponsorship_patterns_cover_not_eligible_wording(self):
+        text = "This position is not eligible for Visa Sponsorship."
+
+        self.assertTrue(jobctl.regex_hits(jobctl.SPONSORSHIP_BLOCKER_PATTERNS, text))
+
+    def test_sponsorship_patterns_cover_without_need_for_employer_sponsorship(self):
+        text = (
+            "Must be authorized to work in the U.S. without the need for current "
+            "or future employer sponsorship."
+        )
+
+        self.assertTrue(jobctl.regex_hits(jobctl.SPONSORSHIP_BLOCKER_PATTERNS, text))
+
     def test_approved_candidates_accepts_partial_batch(self):
         report = {"candidates": [{"approved": True}]}
 

@@ -78,6 +78,7 @@ NEGATIVE_EVIDENCE_CUES = (
     "do not treat",
     "must not",
     "unless confirmed",
+    "unless that experience is confirmed",
     "without confirmation",
     "transferable",
     "workflow equivalent",

@@ -10,18 +10,36 @@ SQLite maintenance cadence and browser pipeline; running both adds duplicate
 exports and creates avoidable queue races. Keep this script for manual recovery,
 diagnostics, and environments where the Codex heartbeat is disabled.
 
+The separate `ResumeOptimizerATSSnapshot` task is safe to run alongside the
+heartbeat. It performs only public, read-only ATS requests outside the Codex
+network sandbox and atomically writes `outputs/ats_discovery_snapshot.json`.
+It never changes the queue, tracker, mailbox, browser, or an application.
+
+Install it every two hours and create the first snapshot immediately:
+
+```powershell
+.\scripts\install_ats_snapshot_task.ps1 -Action Install -EveryHours 2 -RunNow
+```
+
+The heartbeat accepts snapshots no more than 150 minutes old. Missing, stale,
+or `unavailable` snapshots require browser/connector fallback and must not be
+reported as zero matching jobs.
+
 It never opens a browser, fills an ATS form, clicks legal/privacy controls, or
 submits an application. The entrypoint only coordinates the existing local
 SQLite workflow:
 
-1. Configures the SQLite record for the Outlook reconciliation cadence.
+1. Configures SQLite records for Outlook outcome, LinkedIn-alert, inbound-recruiter,
+   and application-processing cadences.
 2. Expires stale unstarted queue items and reports rolling capacity.
 3. Applies a metadata-only mailbox event file when one is present.
 4. Exports SQLite state to the queue and tracker compatibility CSVs.
 5. Imports newly recognizable historical barriers idempotently and refreshes
    the local workflow-optimization report.
 6. Optionally runs an ATS **report only** scan; it does not add jobs to the
-   queue. Screen live postings with `scripts/discovery.py` before queueing.
+   queue. The serialized pipeline consumes a fresh snapshot with
+   `scripts/verify_discovery_snapshot.py --queue --capacity 10`; individual
+   browser or connector postings still use `scripts/discovery.py`.
 7. Optionally prepares packets, still stopping before any browser/application
    submission. This option is off by default.
 8. Validates the tracker and refreshes the local dashboard.
@@ -90,6 +108,13 @@ independent `alert-manifest` / `mark-alerts-checked` cursor, treats alert conten
 only as leads, and verifies live postings through `scripts/discovery.py` before
 queueing or preparing packets. The Windows task continues to perform local
 maintenance only; it does not read Outlook or control a browser.
+
+Inbound recruiter outreach uses a separate
+`recruiter-manifest` / `mark-recruiters-checked` cursor. It accepts a verified
+external recruiter representing a named direct employer, while rejecting
+contract staffing placements, unnamed clients, and cases where the intermediary
+is the employer of record. The cursor advances only after every reachable lead
+has been queued, surfaced for review, or recorded as a validation failure.
 
 ## Install or remove the task
 

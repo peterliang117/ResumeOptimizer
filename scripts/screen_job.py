@@ -14,6 +14,10 @@ DATA_SIGNALS = {
     "sql": r"\bsql\b",
     "python": r"\bpython\b",
     "data pipelines": r"\bdata pipeline(?:s)?\b",
+    "data infrastructure": r"\bdata infrastructure\b",
+    "data orchestration": r"\bdata orchestration\b|\borchestration models?\b",
+    "data systems": r"\bdata systems?\b",
+    "cdc pipelines": r"\bcdc pipelines?\b",
     "etl/elt": r"\b(?:etl|elt)\b",
     "data modeling": r"\bdata model(?:ing|s)?\b",
     "data quality": r"\bdata quality\b",
@@ -38,18 +42,22 @@ GRC_OPERATIONS_SIGNALS = {
 }
 
 STAFFING_SIGNALS = {
-    "staffing company": r"\bstaffing (?:company|firm|agency)\b",
     "staffing client": r"\bstaffing clients?\b",
-    "recruiting agency": r"\b(?:recruiting|recruitment) (?:agency|firm)\b",
     "agency recruiting": r"\bagency recruiting\b",
-    "search firm": r"\bsearch firm\b",
     "third-party consulting vendor": r"\bthird[- ]party (?:consulting|vendor)\b",
     "client representation": r"\b(?:our|the) client is (?:seeking|looking)\b",
+    "unnamed client": r"\b(?:confidential|unnamed) client\b",
+    "contract placement": r"\b(?:w-?2|c2c|corp[- ]to[- ]corp) contract\b|\bcontract[- ]to[- ]hire\b",
 }
 
 NO_SPONSORSHIP_SIGNALS = {
     "does not sponsor": r"\b(?:does not|do not|will not|cannot) sponsor\b",
     "no visa sponsorship": r"\bno visa sponsorship\b|\bwithout visa sponsorship\b",
+    "not eligible for visa sponsorship": r"\bnot eligible for (?:visa )?sponsorship\b",
+    "without need for sponsorship": (
+        r"\bwithout\s+(?:the\s+)?need\s+for\s+"
+        r"(?:current\s+or\s+future\s+)?(?:employer\s+|visa\s+)?sponsorship\b"
+    ),
     "no h-1b support": r"\bno h[- ]?1b(?: transfer)?\b|\b(?:cannot|will not) support h[- ]?1b\b",
     "must not need sponsorship": r"\b(?:must|should) (?:not )?be authorized .*?without sponsorship\b",
 }
@@ -89,7 +97,7 @@ def evaluate_job(job_text: str, role: str = "") -> dict[str, Any]:
     failures: list[str] = []
 
     if staffing_signals:
-        failures.append("Staffing, recruiting, or third-party vendor posting detected.")
+        failures.append("Contract staffing placement, unnamed client, or third-party vendor posting detected.")
     if sponsorship_signals:
         failures.append("Posting explicitly indicates no sponsorship or H-1B support.")
     if len(grc_signals) >= 3 and len(data_signals) < 3:

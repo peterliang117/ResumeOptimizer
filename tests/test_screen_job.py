@@ -67,6 +67,37 @@ class ScreenJobTests(unittest.TestCase):
             for marker in ("sponsor", "sponsorship", "h-1b", "authorization", "work")
         ))
 
+    def test_not_eligible_for_visa_sponsorship_fails(self):
+        job_text = """
+        Staff Data Analyst responsible for SQL and Python data analysis and data
+        modeling. This position is not eligible for Visa Sponsorship. Applicants
+        must be authorized to work in the United States without the need for
+        Visa Sponsorship by the start date of employment.
+        """
+        result = evaluate_job(job_text, role="Staff Data Analyst")
+
+        self.assertFalse(result["eligible"])
+        self.assertEqual(result["sponsorship_status"], "explicit_no_sponsorship")
+        self.assertIn(
+            "not eligible for visa sponsorship",
+            result["evidence"]["no_sponsorship_signals"],
+        )
+
+    def test_without_need_for_current_or_future_employer_sponsorship_fails(self):
+        job_text = """
+        Senior Analytics Engineer responsible for SQL data modeling and data
+        infrastructure. Applicants must be authorized to work in the U.S.
+        without the need for current or future employer sponsorship.
+        """
+        result = evaluate_job(job_text, role="Senior Analytics Engineer")
+
+        self.assertFalse(result["eligible"])
+        self.assertEqual(result["sponsorship_status"], "explicit_no_sponsorship")
+        self.assertIn(
+            "without need for sponsorship",
+            result["evidence"]["no_sponsorship_signals"],
+        )
+
     def test_staffing_and_recruiting_post_fails(self):
         job_text = """
         We are hiring a technical recruiter to source candidates, manage the
@@ -82,6 +113,19 @@ class ScreenJobTests(unittest.TestCase):
             marker in self.failure_text(result)
             for marker in ("staff", "recruit", "role", "core")
         ))
+
+    def test_named_employer_role_is_not_rejected_for_external_recruiter_language(self):
+        job_text = """
+        An external recruiting firm introduced this Senior Data Engineer role
+        at Named Employer. Build Python and SQL data pipelines, own data quality,
+        and develop warehouse data models. This is a direct full-time position
+        with Named Employer.
+        """
+        result = evaluate_job(job_text, role="Senior Data Engineer")
+
+        self.assert_screen_result_shape(result)
+        self.assertTrue(result["eligible"])
+        self.assertEqual(result["evidence"]["staffing_signals"], [])
 
     def test_generic_analytics_keywords_without_role_core_do_not_pass(self):
         job_text = """

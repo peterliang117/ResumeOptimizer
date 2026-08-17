@@ -4,8 +4,10 @@
 
 The Codex heartbeat is the single browser-owning coordinator. It wakes every 30
 minutes to continue queued applications and remote exceptions. Direct-employer
-and LinkedIn discovery has an independent two-hour cursor; Outlook outcome
-reconciliation runs every four hours. Do not install a second browser-owning
+and LinkedIn discovery has an independent two-hour cursor, accelerated to 30
+minutes whenever no actionable jobs remain; Outlook outcome reconciliation runs
+every four hours, and inbound recruiter discovery runs every 30 minutes. Do not
+install a second browser-owning
 cron or Windows task. `scripts/local_automation.py` may still be run manually
 for local-only maintenance, but it must not overlap the heartbeat pipeline.
 
@@ -14,12 +16,19 @@ Use this runbook before and during each real application. It captures lessons fr
 ## Standard Sequence
 
 1. Run rolling-queue maintenance with
-   `python scripts/queue_maintenance.py --expire-stale --capacity 10 --low-watermark 3`.
+   `python scripts/queue_maintenance.py --expire-stale --capacity 10 --low-watermark 3 --blocked-timeout-hours 24`.
    Treat SQLite (`data/resume_optimizer.db`) as the state authority. The queue
-   and tracker CSV files remain generated compatibility exports.
-2. Continue ready jobs in calibrated-score order. When `refill_recommended` is
-   true, search enough candidates to fill `available_slots`; do not wait for a
-   closed batch to be exhausted.
+   and tracker CSV files remain generated compatibility exports. The maintenance
+   transaction closes verified ATS wrapper duplicates, synchronizes terminal
+   statuses to linked tracker rows, and skips blockers after 24 hours.
+2. Continue ready jobs in calibrated-score order. Use
+   `python scripts/job_queue.py next` for packet work and
+   `python scripts/job_queue.py next-application` for `resume_ready` or
+   `application_started` browser work. When `refill_recommended` is true,
+   search enough candidates to fill `available_slots`; do not wait for a closed
+   batch to be exhausted. Blocked or handoff-only jobs count toward capacity but
+   do not suppress refill when the actionable queue is at or below the low
+   watermark.
 3. Find roles using all approved job
    platforms, with LinkedIn and direct employer ATS sources included:
    - Read private criteria from `profile/search_criteria.md`.
@@ -32,10 +41,17 @@ Use this runbook before and during each real application. It captures lessons fr
      Do not pass raw LinkedIn query URLs through `cmd.exe`, and never encode
      query separators as `%26` or `&amp;`; doing so merges every filter into the
      keyword value.
-4. Save each exact job description locally under `jobs/<company>_<role>.txt`,
-   then run `scripts/discovery.py` with the candidate metadata. It rejects a
+4. For ATS snapshots, run
+   `python scripts/verify_discovery_snapshot.py --queue --capacity 10`. It
+   saves the exact JD under `jobs/source/`, writes candidate and review records,
+   and writes a decision for every input to
+   `outputs/discovery_verification_report.json`. For browser or connector
+   candidates, save each exact job description locally under
+   `jobs/<company>_<role>.txt`, then run `scripts/discovery.py` with the
+   candidate metadata. The shared gate rejects a
    candidate unless a direct-employer URL, live timestamp, location/work mode,
-   compensation, role core, sponsorship screen, and deduplication check pass.
+   compensation, role core, sponsorship screen, minimum score, and
+   deduplication check pass.
 5. Queue every verified candidate. Preserve its base score, outcome calibration,
    evidence, and role family. A partial refill is valid.
 6. Identify unsupported requirements before writing edits.
@@ -102,6 +118,26 @@ Use this runbook before and during each real application. It captures lessons fr
    - follow-up date: seven calendar days after the call unless a different
      timeline was stated
 7. Do not infer rejection from silence. Create a follow-up action instead.
+
+## Inbound Recruiter Lead Discovery
+
+Keep new recruiter opportunities separate from post-application monitoring.
+
+1. Run `scripts/scheduled_reconcile.py recruiter-manifest` and list Outlook
+   messages received after its `since_datetime`, ordered newest first.
+2. Identify outreach that names a hiring employer and role, even when no tracker
+   row exists. Verify the sender or recruiting firm and corroborate the role
+   through the named employer, official ATS, or direct company/recruiter evidence.
+3. A verified external recruiter representing a named direct employer is an
+   eligible source. Reject contract staffing placements, unnamed-client roles,
+   and cases where the intermediary is the employer of record.
+4. Apply the normal truth, location, compensation, sponsorship, role-core, and
+   employer-concentration gates. Queue accepted work under the named employer
+   and canonical employer URL, not under the recruiting intermediary.
+5. Store metadata only and do not alter mailbox state. Surface unresolved leads
+   and validation failures before running
+   `scripts/scheduled_reconcile.py mark-recruiters-checked`; never advance the
+   cursor while a reachable recruiter message remains silently unclassified.
 
 ## Scheduled Outlook Job-Alert Discovery
 
@@ -353,7 +389,8 @@ Use this order to reduce wasted tokens and avoid blocked paths:
 2. Hard-screen before resume work:
    - save the live job description and record `screening.json` with
      `scripts/queue_screened_job.py` before adding a new queue row
-   - direct employer, not staffing
+   - direct employer, not a contract staffing placement or unnamed client;
+     verified external recruiter outreach for a named direct employer is eligible
    - NYC, Jersey City, or remote U.S. where locally allowed
    - posted within seven days when available; prioritize the newest 72 hours
    - hybrid, in-office, or remote according to local criteria

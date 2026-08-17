@@ -47,10 +47,19 @@ ALLOWED_EVENT_FIELDS = {
 ACTIVE_MAILBOX_STATUSES = {"submitted", "interview", "offer"}
 OUTCOME_TASK = "outlook_reconciliation"
 ALERT_TASK = "linkedin_alert_discovery"
+RECRUITER_TASK = "inbound_recruiter_discovery"
 PIPELINE_TASK = "full_application_pipeline"
-OUTCOME_INTERVAL_MINUTES = 240
-ALERT_INTERVAL_MINUTES = 120
-PIPELINE_INTERVAL_MINUTES = 30
+OUTCOME_INTERVAL_MINUTES = 480
+ALERT_INTERVAL_MINUTES = 360
+RECRUITER_INTERVAL_MINUTES = 240
+PIPELINE_INTERVAL_MINUTES = 120
+URGENT_DISCOVERY_INTERVAL_MINUTES = 360
+QUEUE_CAPACITY = 10
+OPEN_QUEUE_STATUSES = {
+    "queued", "resume_ready", "application_started", "analyzed",
+    "manual_apply_needed", "blocked_needs_user_input", "pending_remote_approval",
+}
+ACTIONABLE_QUEUE_STATUSES = {"queued", "resume_ready", "application_started"}
 
 
 def _normalized(value: object) -> str:
@@ -84,27 +93,55 @@ def event_already_applied(existing: dict | None, event: dict, event_type: str, r
     )
 
 
-def due_tasks(db_path: Path) -> list[dict]:
+def _parse_datetime(value: object) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def due_tasks(db_path: Path, now: datetime | None = None) -> list[dict]:
     initialize(db_path)
     with connection(db_path) as conn:
         rows = conn.execute(
             "SELECT * FROM scheduled_tasks WHERE enabled = 1 ORDER BY next_run_at, task_name"
         ).fetchall()
-    now = datetime.now(timezone.utc)
+        queue_statuses = [str(row["status"] or "") for row in conn.execute(
+            "SELECT status FROM jobs"
+        ).fetchall()]
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    current = current.astimezone(timezone.utc)
+    open_jobs = sum(status in OPEN_QUEUE_STATUSES for status in queue_statuses)
+    actionable_jobs = sum(status in ACTIONABLE_QUEUE_STATUSES for status in queue_statuses)
+    urgent_refill = open_jobs < QUEUE_CAPACITY and actionable_jobs == 0
 
     def is_due(value: object) -> bool:
-        raw = str(value or "").strip()
-        if not raw:
+        parsed = _parse_datetime(value)
+        if parsed is None:
             return True
-        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-        if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
-        return parsed.astimezone(timezone.utc) <= now
+        return parsed <= current
 
-    return [
-        {key: row[key] for key in row.keys()} | {"due": is_due(row["next_run_at"])}
-        for row in rows
-    ]
+    result: list[dict] = []
+    for row in rows:
+        scheduled_due = is_due(row["next_run_at"])
+        due = scheduled_due
+        due_reason = "scheduled" if scheduled_due else ""
+        if row["task_name"] == ALERT_TASK and not due and urgent_refill:
+            last_run = _parse_datetime(row["last_run_at"])
+            urgent_after = current - timedelta(minutes=URGENT_DISCOVERY_INTERVAL_MINUTES)
+            if last_run is None or last_run <= urgent_after:
+                due = True
+                due_reason = "urgent_refill"
+        result.append(
+            {key: row[key] for key in row.keys()}
+            | {"due": due, "due_reason": due_reason}
+        )
+    return result
 
 
 def apply_event(event: dict, db_path: Path) -> bool:
@@ -212,12 +249,43 @@ def alert_discovery_manifest(db_path: Path) -> dict:
     }
 
 
+def recruiter_discovery_manifest(db_path: Path) -> dict:
+    """Return an independent cursor for new inbound recruiter opportunities."""
+    configure_schedule(
+        RECRUITER_TASK,
+        RECRUITER_INTERVAL_MINUTES,
+        notes="Inspect inbound recruiter outreach as leads; verify the named direct employer before queueing.",
+        path=db_path,
+    )
+    schedule = next(item for item in due_tasks(db_path) if item["task_name"] == RECRUITER_TASK)
+    since_datetime = str(schedule.get("last_run_at") or "")
+    if not since_datetime:
+        since_datetime = (datetime.now(timezone.utc) - timedelta(days=1)).replace(microsecond=0).isoformat()
+    return {
+        "schedule": schedule,
+        "since_datetime": since_datetime,
+        "since_date": since_datetime[:10],
+        "source": "Inbound recruiter outreach",
+        "rules": {
+            "lead_only": True,
+            "named_direct_employer_required": True,
+            "verify_recruiter_identity": True,
+            "verify_live_posting_or_role": True,
+            "allow_external_recruiter_for_named_direct_employer": True,
+            "reject_staffing_placement_or_unnamed_client": True,
+            "surface_unresolved_before_advancing_cursor": True,
+            "store_message_body": False,
+            "change_mailbox_state": False,
+        },
+    }
+
+
 def pipeline_manifest(db_path: Path) -> dict:
-    """Return the independent cursor for queued application processing."""
+    """Return the independent cursor for serialized application processing."""
     configure_schedule(
         PIPELINE_TASK,
         PIPELINE_INTERVAL_MINUTES,
-        notes="Process queued applications serially; discovery has its own two-hour cursor.",
+        notes="Process queued packet work and application-ready jobs serially; discovery has its own two-hour cursor.",
         path=db_path,
     )
     schedule = next(item for item in due_tasks(db_path) if item["task_name"] == PIPELINE_TASK)
@@ -240,12 +308,15 @@ def parse_args() -> argparse.Namespace:
     configure.add_argument("--interval-minutes", type=int)
     configure.add_argument("--outlook-interval-minutes", type=int, default=OUTCOME_INTERVAL_MINUTES)
     configure.add_argument("--alert-interval-minutes", type=int, default=ALERT_INTERVAL_MINUTES)
+    configure.add_argument("--recruiter-interval-minutes", type=int, default=RECRUITER_INTERVAL_MINUTES)
     configure.add_argument("--pipeline-interval-minutes", type=int, default=PIPELINE_INTERVAL_MINUTES)
     subparsers.add_parser("due")
     subparsers.add_parser("manifest")
     subparsers.add_parser("mark-checked")
     subparsers.add_parser("alert-manifest")
     subparsers.add_parser("mark-alerts-checked")
+    subparsers.add_parser("recruiter-manifest")
+    subparsers.add_parser("mark-recruiters-checked")
     subparsers.add_parser("pipeline-manifest")
     subparsers.add_parser("mark-pipeline-run")
     apply_events = subparsers.add_parser("apply-events")
@@ -258,6 +329,7 @@ def main() -> int:
     if args.command == "configure":
         outlook_interval = args.interval_minutes or args.outlook_interval_minutes
         alert_interval = args.interval_minutes or args.alert_interval_minutes
+        recruiter_interval = args.interval_minutes or args.recruiter_interval_minutes
         pipeline_interval = args.interval_minutes or args.pipeline_interval_minutes
         configure_schedule(
             OUTCOME_TASK,
@@ -272,15 +344,22 @@ def main() -> int:
             path=args.db,
         )
         configure_schedule(
+            RECRUITER_TASK,
+            recruiter_interval,
+            notes="Inspect inbound recruiter outreach as leads; verify the named direct employer before queueing.",
+            path=args.db,
+        )
+        configure_schedule(
             PIPELINE_TASK,
             pipeline_interval,
-            notes="Process queued applications serially; discovery has its own cursor.",
+            notes="Process queued packet work and application-ready jobs serially; discovery has its own cursor.",
             path=args.db,
         )
         print(
             "Configured Outlook reconciliation every "
-            f"{outlook_interval} minutes, discovery every {alert_interval} minutes, "
-            f"and queued application processing every {pipeline_interval} minutes."
+            f"{outlook_interval} minutes, alert discovery every {alert_interval} minutes, "
+            f"recruiter discovery every {recruiter_interval} minutes, "
+            f"and serialized application processing every {pipeline_interval} minutes."
         )
         return 0
     if args.command == "due":
@@ -291,6 +370,9 @@ def main() -> int:
         return 0
     if args.command == "alert-manifest":
         print(json.dumps(alert_discovery_manifest(args.db), indent=2, ensure_ascii=False))
+        return 0
+    if args.command == "recruiter-manifest":
+        print(json.dumps(recruiter_discovery_manifest(args.db), indent=2, ensure_ascii=False))
         return 0
     if args.command == "pipeline-manifest":
         print(json.dumps(pipeline_manifest(args.db), indent=2, ensure_ascii=False))
@@ -303,6 +385,11 @@ def main() -> int:
         alert_discovery_manifest(args.db)
         mark_schedule_run(ALERT_TASK, path=args.db)
         print("Marked LinkedIn alert discovery checked.")
+        return 0
+    if args.command == "mark-recruiters-checked":
+        recruiter_discovery_manifest(args.db)
+        mark_schedule_run(RECRUITER_TASK, path=args.db)
+        print("Marked inbound recruiter discovery checked.")
         return 0
     if args.command == "mark-pipeline-run":
         pipeline_manifest(args.db)

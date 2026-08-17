@@ -412,7 +412,7 @@ def write_refill_report(args: argparse.Namespace, batch_id: str, queue_rows: lis
             "Mark 1 to target_size candidates with approved=true.",
             "Set hard_filters_passed=true only after verifying location, pay, sponsorship, recency, employer type, and unsupported-skill blockers.",
             "Set match_score to an integer from 0 to 100 for every approved candidate.",
-            "Do not approve staffing firms, explicit no-sponsorship roles, closed posts, duplicates, or roles outside the private search criteria.",
+            "Do not approve contract staffing placements, unnamed-client roles, explicit no-sponsorship roles, closed posts, duplicates, or roles outside the private search criteria. A verified external recruiter representing a named direct employer is not a staffing placement.",
         ],
         "linkedin_searches": linkedin_searches,
         "candidates": ats_candidates,
@@ -516,7 +516,12 @@ def command_refill_next_batch(args: argparse.Namespace) -> int:
 
 SPONSORSHIP_BLOCKER_PATTERNS = [
     r"\b(no|not|cannot|can't|unable to)\s+(?:provide\s+)?(?:visa\s+)?sponsor",
+    r"\bnot eligible for (?:visa )?sponsorship\b",
     r"\bwithout\s+(?:current\s+or\s+future\s+)?(?:visa\s+)?sponsorship\b",
+    (
+        r"\bwithout\s+(?:the\s+)?need\s+for\s+"
+        r"(?:current\s+or\s+future\s+)?(?:employer\s+|visa\s+)?sponsorship\b"
+    ),
     r"\bnow\s+or\s+in\s+the\s+future\b.{0,80}\bsponsor",
     r"\bsponsor\b.{0,80}\bnow\s+or\s+in\s+the\s+future\b",
 ]
